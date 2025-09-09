@@ -1,0 +1,31 @@
+vault_path: "/data/Obsidian/semantic-vault"
+library_paths:
+  - "/data/Library/pdf"
+  - "/data/Library/epub"
+include_globs:
+  - "**/*.md"
+  - "**/*.pdf"
+  - "**/*.epub"
+exclude_globs:
+  - "**/.trash/**"
+  - "**/archive/**"
+  - "**/.obsidian/**"
+chunk:
+  target_tokens: 800
+  overlap_tokens: 120
+embeddings:
+  provider: "local"
+  model: "intfloat/multilingual-e5-small"
+llm:
+  provider: "ollama"
+  model: "qwen2.5:7b-instruct"
+  base_url: "http://127.0.0.1:11434"
+index:
+  db: "./index/index.sqlite"
+  vector_store: "faiss"
+rag:
+  mode: "generative"
+  top_k: 8
+  rerank: false
+security:
+  offline_mode: true
