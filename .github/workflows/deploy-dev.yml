@@ -1,0 +1,42 @@
+name: deploy-dev
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+  deployments: write
+jobs:
+  deploy:
+    name: mark dev deployment
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    environment:
+      name: dev
+      url: ${{ steps.envurl.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Synthetic preview URL (replace later with real host URL)
+      - id: envurl
+        run: echo "url=https://dev.local/pr-${{ github.event.number }}" >> $GITHUB_OUTPUT
+
+      # GitHub Deployment (visible in PR as Environments: dev)
+      - name: Start deployment
+        uses: bobheadxi/deployments@v1
+        id: gh_deploy
+        with:
+          step: start
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: dev
+          ref: ${{ github.head_ref }}
+
+      - name: Finish deployment (success)
+        uses: bobheadxi/deployments@v1
+        if: ${{ success() }}
+        with:
+          step: finish
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: dev
+          status: success
+          deployment_id: ${{ steps.gh_deploy.outputs.deployment_id }}
+          env_url: ${{ steps.envurl.outputs.url }}
