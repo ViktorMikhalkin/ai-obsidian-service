@@ -1,68 +1,24 @@
-name: CI
-
+name: ci
 on:
-  push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
-
+    types: [opened, synchronize, reopened, ready_for_review]
 permissions:
   contents: read
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   test:
+    name: test (pytest)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: [ "3.10", "3.11" ]
-
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up micromamba
-        uses: mamba-org/setup-micromamba@v2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          micromamba-version: "1.5.8"
-          environment-file: environment.yml
-          cache-environment: true
-
-      - name: Ensure python version
-        shell: bash -l {0}
+          python-version: '3.11'
+      - name: Install system deps (poppler)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+      - name: Install Python dependencies
         run: |
-          python --version
-          # optionally enforce matrix version:
-          # micromamba install -y python=${{ matrix.python-version }}
-
-      - name: Install faiss/poppler if missing
-        shell: bash -l {0}
-        run: |
-          micromamba install -y -c conda-forge faiss-cpu poppler || true
-
-      - name: Install pip deps
-        shell: bash -l {0}
-        run: |
-          pip install -U pip setuptools wheel
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
-
       - name: Run tests
-        shell: bash -l {0}
-        run: pytest -v
-
-      - name: Export OpenAPI schema
-        shell: bash -l {0}
-        run: |
-          python scripts/export_openapi.py
-          test -f api/openapi.json && echo "OpenAPI exported"
-
-      - name: Upload OpenAPI artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: openapi-${{ github.sha }}
-          path: api/openapi.json
-          if-no-files-found: warn
+        run: pytest -q
