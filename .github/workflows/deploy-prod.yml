@@ -1,0 +1,50 @@
+name: deploy-prod
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+  deployments: write
+jobs:
+  deploy:
+    name: mark prod deployment
+    runs-on: ubuntu-latest
+    environment:
+      name: prod
+      url: ${{ steps.envurl.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Manual confirmation (solo-friendly). Approve in Actions UI to continue.
+      - name: Confirm promote to PROD
+        uses: trstringer/manual-approval@v1
+        with:
+          secret: ${{ secrets.GITHUB_TOKEN }}
+          approvers: ${{ github.actor }}
+          minimum-approvals: 1
+          issue-title: "Promote tag ${{ github.ref_name }} to PROD?"
+
+      # Production URL placeholder. Replace with your real URL later.
+      - id: envurl
+        run: echo "url=https://prod.local" >> $GITHUB_OUTPUT
+
+      # GitHub Deployment (visible in repo as Environments: prod)
+      - name: Start deployment
+        uses: bobheadxi/deployments@v1
+        id: gh_deploy
+        with:
+          step: start
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: prod
+          ref: ${{ github.ref }}
+
+      - name: Finish deployment (success)
+        uses: bobheadxi/deployments@v1
+        if: ${{ success() }}
+        with:
+          step: finish
+          token: ${{ secrets.GITHUB_TOKEN }}
+          env: prod
+          status: success
+          deployment_id: ${{ steps.gh_deploy.outputs.deployment_id }}
+          env_url: ${{ steps.envurl.outputs.url }}
