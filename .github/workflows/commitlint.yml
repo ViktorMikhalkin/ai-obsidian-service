@@ -1,0 +1,22 @@
+name: commitlint
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dev deps
+        run: |
+          npm ci || npm i
+      - name: Lint commit messages in PR
+        run: |
+          npx commitlint --from=${{ github.event.pull_request.base.sha }} --to=${{ github.sha }}
