@@ -1,31 +1,49 @@
+# Required paths
 vault_path: "/data/Obsidian/semantic-vault"
 library_paths:
-  - "/data/Library/pdf"
-  - "/data/Library/epub"
+  - "/home/viktor/library"
+
+# Where to store index files
+index_dir: "index"
+
+# Files to include/exclude while scanning
 include_globs:
   - "**/*.md"
   - "**/*.pdf"
   - "**/*.epub"
 exclude_globs:
   - "**/.trash/**"
-  - "**/archive/**"
   - "**/.obsidian/**"
+  - "**/archive/**"
+  - "**/.git/**"
+  - "**/node_modules/**"
+  - "**/*.png"
+  - "**/*.jpg"
+  - "**/*.jpeg"
+  - "**/*.gif"
+
+# Chunking settings expected by the CLI
 chunk:
-  target_tokens: 800
-  overlap_tokens: 120
+  target_tokens: 300
+  overlap_tokens: 60
+
+# Embedding model (used if embeddings are enabled)
+embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+
+# API server defaults
+server:
+  host: "127.0.0.1"
+  port: 8000
+
+# Embeddings / vector index settings
 embeddings:
-  provider: "local"
-  model: "intfloat/multilingual-e5-small"
-llm:
-  provider: "ollama"
-  model: "qwen2.5:7b-instruct"
-  base_url: "http://127.0.0.1:11434"
-index:
-  db: "./index/index.sqlite"
-  vector_store: "faiss"
-rag:
-  mode: "generative"
-  top_k: 8
-  rerank: false
-security:
-  offline_mode: true
+  # Model from sentence-transformers; small and fast on CPU
+  model: "intfloat/multilingual-e5-small"   # or: "sentence-transformers/all-MiniLM-L6-v2"
+  device: "cuda"                              # "cpu" is fine; use "cuda" if you have GPU
+  batch_size: 128
+
+  # FAISS index file locations (created during build)
+  faiss:
+    search_on: gpu         # runtime FAISS search on GPU (optional)
+    index_path: "index/faiss.index"
+    dim_path: "index/dim.txt"

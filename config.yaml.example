@@ -1,0 +1,20 @@
+# Example configuration for AI↔Obsidian Service
+
+# Path to your Obsidian vault
+vault_path: "/path/to/your/obsidian/vault"
+
+# Optional: paths to extra document libraries (PDF, EPUB, etc.)
+library_paths:
+  - "/path/to/library1"
+  - "/path/to/library2"
+
+# Index storage
+index_dir: "index"
+
+# Model options (used if embeddings are enabled)
+embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+
+# API server options
+server:
+  host: "127.0.0.1"
+  port: 8000

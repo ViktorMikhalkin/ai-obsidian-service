@@ -213,3 +213,111 @@ You are free to use, modify, and distribute the code, provided that you include 
 
 If you discover a vulnerability, please **do not open a public issue**.  
 Instead, review our [Security Policy](SECURITY.md) for instructions on responsible disclosure.
+
+## Conda / Mamba setup (Python 3.12/3.13)
+
+**Full environment (FAISS 1.12.0 + CPU PyTorch + embeddings):**
+```bash
+mamba env create -f environment.yml    # or: conda env create -f environment.yml
+conda activate aiobs
+
+cp config.yaml.example config.yaml
+# edit vault_path and library_paths
+
+python -m cli.aiobs build
+uvicorn indexer.app:app --reload --host 127.0.0.1 --port 8000
+# Open http://127.0.0.1:8000/docs
+```
+
+**Core environment (BM25-only, quick smoke test):**
+```bash
+mamba env create -f environment-core.yml
+conda activate aiobs-core
+
+cp config.yaml.example config.yaml
+python -m cli.aiobs build
+uvicorn indexer.app:app --reload --host 127.0.0.1 --port 8000
+```
+
+> Notes:
+> - On Python 3.12/3.13, FAISS via pip may be unavailable; conda is reliable.
+> - BM25 fallback works without embeddings as long as `index/index.jsonl` exists.
+> - Dockerfile can be used later for releases.
+
+---
+
+## Quick Start (Conda) — Updated
+
+```bash
+# Full environment (FAISS + embeddings)
+mamba env create -f environment.yml
+conda activate aiobs
+
+# (Alternative) Minimal BM25-only API:
+# mamba env create -f environment-core.yml
+# conda activate aiobs-core
+
+# Configure
+cp config.yaml.example config.yaml
+# edit: vault_path, library_paths, index_dir
+
+# Build index (creates index/faiss.index, index/index.jsonl, index/dim.txt)
+python -m cli.aiobs build
+
+# Run API
+uvicorn indexer.app:app --reload --host 127.0.0.1 --port 8000
+
+# Smoke tests
+curl http://127.0.0.1:8000/health
+curl -X POST http://127.0.0.1:8000/search -H 'Content-Type: application/json' -d '{"query":"java performance","top_k":5}'
+```
+
+## Troubleshooting
+
+- **Empty hits**: ensure `index/faiss.index`, `index/index.jsonl`, `index/dim.txt` exist. Re-run `python -m cli.aiobs build` if needed.
+- **Path mismatch**: API reads `index_dir` from `config.yaml`. Keep paths consistent.
+- **FAISS via pip on 3.13**: use Conda (`environment.yml`) for reliable FAISS installation.
+- **Minimal mode**: `environment-core.yml` works without embeddings; still needs `index/index.jsonl`.
+
+
+## GPU Usage
+
+The indexing pipeline has two main compute-heavy parts:
+
+1. **Embeddings (GPU-accelerated)**
+    - Controlled via `config.yaml`:
+      ```yaml
+      embeddings:
+        model: "intfloat/multilingual-e5-small"
+        device: "cuda"     # use "cpu" if no GPU
+        batch_size: 128    # reduce to 96 or 64 if you hit CUDA OOM
+      ```
+    - When `device: cuda` is set, embeddings are computed directly on your NVIDIA GPU.
+    - This stage is the bottleneck of indexing, and GPU acceleration typically yields a **10×–30× speedup** compared to CPU-only runs.
+    - You can monitor usage with:
+      ```bash
+      nvidia-smi -l 2
+      ```
+      Expect GPU utilization >50% and memory usage in the 1–2 GB range during embedding.
+
+2. **FAISS Index (CPU by default)**
+    - Controlled via `config.yaml`:
+      ```yaml
+      faiss:
+        search_on: "cpu"
+      ```
+    - By default, the FAISS index is built and stored on CPU. This keeps the index portable and avoids tying it to one specific GPU.
+    - At query time, you can set `search_on: gpu` to run nearest-neighbor search on GPU for faster queries. The index is still stored on disk in CPU format.
+
+### Performance Expectations
+
+- On an RTX 1000 Ada (6 GB VRAM):
+    - **GPU (batch_size=128):** ~5–10k embeddings/sec → full library (50–60k chunks) in a few minutes.
+    - **CPU:** ~500–800 embeddings/sec → same workload in 1–2 hours.
+- Adjust `batch_size` if you see CUDA out-of-memory (OOM). Lower values (96 or 64) trade some speed for lower memory use.
+
+### Quick Test
+
+```bash
+make check-cuda   # verify CUDA is available in your environment
+make build        # run indexing with GPU acceleration

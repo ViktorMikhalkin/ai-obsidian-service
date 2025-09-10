@@ -1,34 +1,50 @@
-from dataclasses import dataclass
+import faiss
+import numpy as np
+import tempfile, os, time
+from datetime import datetime as _dt
 from pathlib import Path
-from typing import Tuple
-import faiss, numpy as np
 
-@dataclass
+def _ts(msg: str):
+    print(f"[{_dt.now().strftime('%H:%M:%S')}] {msg}")
+
 class FaissIndex:
-    dim: int
-    path: Path
+    def __init__(self, dim: int, path: Path):
+        self.dim = dim
+        self.path = Path(path)
+        self.index = faiss.IndexFlatIP(dim)
 
-    def __post_init__(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        if self.path.exists():
-            self.index = faiss.read_index(str(self.path))
-        else:
-            self.index = faiss.IndexFlatIP(self.dim)
-
-    @staticmethod
-    def _normalize(x: np.ndarray) -> np.ndarray:
-        norms = np.linalg.norm(x, axis=1, keepdims=True) + 1e-12
-        return x / norms
-
-    def add(self, embeddings: np.ndarray):
-        emb = self._normalize(embeddings.astype(np.float32))
-        self.index.add(emb)
-
-    def search(self, query: np.ndarray, top_k: int = 8) -> Tuple[np.ndarray, np.ndarray]:
-        if query.ndim == 1:
-            query = query[None, :]
-        q = self._normalize(query.astype(np.float32))
-        return self.index.search(q, top_k)
+    def add(self, vecs: np.ndarray):
+        self.index.add(vecs)
 
     def save(self):
-        faiss.write_index(self.index, str(self.path))
+        _ts(f"[faiss] saving index → {self.path}")
+        t0 = time.perf_counter()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(self.path.parent), prefix="faiss.", suffix=".tmp"
+        )
+        os.close(fd)
+        try:
+            faiss.write_index(self.index, tmp_path)
+            os.replace(tmp_path, str(self.path))
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+
+        dur = time.perf_counter() - t0
+        try:
+            size = os.path.getsize(self.path)
+        except Exception:
+            size = -1
+        _ts(f"[faiss] saved in {dur:.1f}s, size={size/1e6:.2f} MB")
+
+    @classmethod
+    def load(cls, path: Path):
+        index = faiss.read_index(str(path))
+        fi = cls(index.d, path)
+        fi.index = index
+        return fi
