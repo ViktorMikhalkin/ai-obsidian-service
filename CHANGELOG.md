@@ -1,5 +1,21 @@
 # Changelog
 
+All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
+
+### 0.0.1 (2025-09-10)
+
+
+### Features
+
+* **api:** add /answer endpoint with optional Ollama support and extractive fallback ([b575304](https://github.com/ViktorMikhalkin/ai-obsidian-service/commit/b5753040b5d3eacd449e3a17ca66f0562e4c20d6))
+* **api:** add /index/stats and /index/rebuild endpoints ([18f3e97](https://github.com/ViktorMikhalkin/ai-obsidian-service/commit/18f3e97321781aa8f860558fbf047ca65b03ac99))
+* **docs:** add OpenAPI export script (scripts/export_openapi.py) ([533d6bd](https://github.com/ViktorMikhalkin/ai-obsidian-service/commit/533d6bdd09fa92464d0413c3589bd4c9e038c905))
+
+
+### Bug Fixes
+
+* **index:** use loaded FAISS index, config-driven index_dir; fix env-core.yml name; update README ([43ec662](https://github.com/ViktorMikhalkin/ai-obsidian-service/commit/43ec66233abb42db0695fee53157113042595958))
+
 ## [0.1.0] - 2025-09-08
 
 ### ✨ Features
