@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from pathlib import Path
 import json, yaml, traceback, os
+from contextlib import asynccontextmanager
 
 # Optional Ollama client
 try:
@@ -13,8 +14,9 @@ except Exception:
 from indexer.embedder import Embedder
 from indexer.store.vector_faiss import FaissIndex
 
-app = FastAPI(title="AI↔Obsidian Search API", version="1.1.0")
-
+# ---------------------------
+# Pydantic models (API)
+# ---------------------------
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
@@ -42,6 +44,9 @@ class AnswerResponse(BaseModel):
     answer: str
     sources: list[SearchHit]
 
+# ---------------------------
+# App state
+# ---------------------------
 CFG = {}
 INDEX_DIR = None
 FA = None
@@ -49,7 +54,11 @@ METAS: list[dict] = []
 EMBED = None
 DIM = None
 
+# ---------------------------
+# Helpers
+# ---------------------------
 def _load_config():
+    """Load config.yaml from current working directory."""
     global CFG, INDEX_DIR
     with open("config.yaml", "r", encoding="utf-8") as f:
         CFG = yaml.safe_load(f)
@@ -57,14 +66,17 @@ def _load_config():
     return CFG
 
 def _load_index():
+    """Load FAISS index + metadata and dimension."""
     global FA, METAS, DIM
     idx_path = INDEX_DIR / "faiss.index"
     meta_path = INDEX_DIR / "index.jsonl"
     dim_path = INDEX_DIR / "dim.txt"
 
     if not idx_path.exists() or not meta_path.exists() or not dim_path.exists():
-        raise FileNotFoundError(f"Missing index artifacts in {INDEX_DIR}. "
-                                f"Expected faiss.index, index.jsonl, dim.txt")
+        raise FileNotFoundError(
+            f"Missing index artifacts in {INDEX_DIR}. "
+            f"Expected faiss.index, index.jsonl, dim.txt"
+        )
 
     FA = FaissIndex.load(idx_path)
     DIM = int(Path(dim_path).read_text().strip())
@@ -78,6 +90,7 @@ def _load_index():
                 continue
 
 def _init_embedder():
+    """Initialize the embedding model wrapper."""
     global EMBED
     emb = CFG.get("embeddings", {}) or {}
     model = emb.get("model", "intfloat/multilingual-e5-small")
@@ -85,17 +98,28 @@ def _init_embedder():
     dtype = emb.get("dtype", "fp32")
     EMBED = Embedder(model_name=model, device=device, dtype=dtype)
 
-@app.on_event("startup")
-def _startup():
+# ---------------------------
+# Lifespan (startup/shutdown)
+# ---------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: attempt to load config, index, and embedder.
     try:
         _load_config()
         _load_index()
         _init_embedder()
     except Exception:
+        # Keep app running; /health will report problems
         traceback.print_exc()
-        # Keep app up; /health will report errors
-        pass
+    yield
+    # Shutdown: nothing to clean up right now
 
+# Create app with lifespan
+app = FastAPI(title="AI↔Obsidian Search API", version="1.1.0", lifespan=lifespan)
+
+# ---------------------------
+# Routes
+# ---------------------------
 @app.get("/health")
 def health():
     errors = []
@@ -151,6 +175,7 @@ def search(req: SearchRequest):
     return SearchResponse(results=results)
 
 def _extractive_summarize(query: str, hits: list[SearchHit]) -> str:
+    """Fallback extractive answer if no LLM or no context."""
     if not hits:
         return "No relevant results were found."
     snippets = []
@@ -160,12 +185,13 @@ def _extractive_summarize(query: str, hits: list[SearchHit]) -> str:
             p = p[:400] + "…"
         snippets.append(f"- [{h.path}] {p}")
     return (
-        f"Query: {query}\n\n"
-        f"Key points from top {len(hits)} results:\n" + "\n".join(snippets) +
-        "\n\n(Generated without an LLM; this is an extractive summary of top passages.)"
+            f"Query: {query}\n\n"
+            f"Key points from top {len(hits)} results:\n" + "\n".join(snippets) +
+            "\n\n(Generated without an LLM; this is an extractive summary of top passages.)"
     )
 
 def _llm_summarize(query: str, hits: list[SearchHit], model: str | None, max_tokens: int, temperature: float) -> str:
+    """Generate answer via Ollama if available; otherwise fallback to extractive summary."""
     if not ollama:
         return _extractive_summarize(query, hits)
     if not hits:
