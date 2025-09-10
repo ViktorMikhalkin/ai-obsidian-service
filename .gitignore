@@ -5,6 +5,7 @@ __pycache__/
 .cache/
 dist/
 build/
+index/
 .ide/
 .pytest_cache/
 .idea/

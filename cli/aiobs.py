@@ -18,6 +18,25 @@ app = typer.Typer(help="AI↔Obsidian CLI v4.3.0")
 def load_config():
     with open("config.yaml", "r", encoding="utf-8") as f:
         _cfg = yaml.safe_load(f.read())
+
+    # --- SAFETY MODE FOR TESTS / CI ---
+    # If AIOBS_TEST_MODE=1 change index_dir and paths FAISS to the temp safe ones
+    # to avoid breaking real indexes while testing.
+
+    if str(os.environ.get("AIOBS_TEST_MODE", "0")) == "1":
+        import tempfile
+        safe_root = os.environ.get("AIOBS_TEST_INDEX_DIR") or tempfile.mkdtemp(prefix="aiobs-test-")
+        safe_index_dir = str(Path(safe_root) / "index")
+        Path(safe_index_dir).mkdir(parents=True, exist_ok=True)
+
+        _cfg["index_dir"] = safe_index_dir
+        emb = _cfg.setdefault("embeddings", {})
+        faiss_cfg = emb.setdefault("faiss", {})
+        faiss_cfg["index_path"] = str(Path(safe_index_dir) / "faiss.index")
+        faiss_cfg["dim_path"] = str(Path(safe_index_dir) / "dim.txt")
+        emb.setdefault("device", "cpu")
+        _ts(f"[test-mode] index_dir → {safe_index_dir}")
+
     _ts(
         f"[config] index_dir={_cfg.get('index_dir', 'index')} "
         f"model={_cfg.get('embeddings',{}).get('model')} "
@@ -26,6 +45,7 @@ def load_config():
         f"dtype={_cfg.get('embeddings',{}).get('dtype','fp32')} "
         f"search_on={_cfg.get('embeddings',{}).get('faiss',{}).get('search_on','cpu')}"
     )
+
     return _cfg
 
 def iter_files(root: Path, patterns):
