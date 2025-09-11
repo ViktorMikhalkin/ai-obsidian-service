@@ -14,11 +14,32 @@
 #   make ENV=aiobs-gpu build
 #   make PY=3.12 ENV=aiobs-gpu env-gpu
 
-ENV ?= aiobs-gpu
+ENV ?= aiobs-cpu
 PY  ?= 3.12
+CONDA_RUN := conda run -n $(ENV)
 
 # Channels are set per-env to avoid global config drift
 CHANNELS = -c pytorch -c nvidia
+
+.PHONY: help env-gpu env-cpu install install-test-deps setup-cpu setup-gpu check-cuda build status serve serve-no-reload clean test test-v build-test
+
+help:
+	@echo "Targets:"
+	@echo "  env-cpu            Create CPU conda env (Python $(PY))"
+	@echo "  env-gpu            Create GPU conda env (Python $(PY), CUDA 12.1 torch)"
+	@echo "  install            Pip install requirements.txt into $(ENV)"
+	@echo "  install-test-deps  Install test-only deps (pytest) into $(ENV)"
+	@echo "  setup-cpu          env-cpu + install + install-test-deps"
+	@echo "  setup-gpu          env-gpu + install + install-test-deps"
+	@echo "  check-cuda         Print CUDA diagnostics (uses $(ENV))"
+	@echo "  build              Build index (uses $(ENV))"
+	@echo "  status             Show index stats (uses $(ENV))"
+	@echo "  serve              Run API with reload (uses $(ENV))"
+	@echo "  serve-no-reload    Run API without reload (uses $(ENV))"
+	@echo "  test               Run pytest in safe mode (AIOBS_TEST_MODE=1)"
+	@echo "  test-v             Same, verbose"
+	@echo "  build-test         Build index in safe mode (AIOBS_TEST_MODE=1)"
+	@echo "  clean              Remove index/"
 
 # ---- Environments ----
 env-gpu:
@@ -36,37 +57,52 @@ env-cpu:
 	conda run -n $(ENV) pip install --upgrade pip
 	$(MAKE) ENV=$(ENV) install
 
+# Convenience setups
+setup-cpu:
+	$(MAKE) ENV=$(ENV) env-cpu
+	$(MAKE) ENV=$(ENV) install-test-deps
+
+setup-gpu:
+	$(MAKE) ENV=$(ENV) env-gpu
+	$(MAKE) ENV=$(ENV) install-test-deps
+
 # ---- Project deps (pip) ----
 install:
-	conda run -n $(ENV) pip install -U -r requirements.txt
+	$(CONDA_RUN) pip install -U -r requirements.txt
+
+install-test-deps:
+	$(CONDA_RUN) pip install -U pytest
 
 # ---- Diagnostics ----
 check-cuda:
 	@echo ">> Checking CUDA in env $(ENV)"
-	conda run -n $(ENV) python - <<'PY'\
-import torch, os; \
-print("torch:", torch.__version__); \
-print("built_with_cuda:", torch.version.cuda); \
-print("cuda_available:", torch.cuda.is_available()); \
-print("device_count:", torch.cuda.device_count()); \
-print("CUDA_VISIBLE_DEVICES:", os.environ.get("CUDA_VISIBLE_DEVICES")); \
-print("device_name:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "<none>")\
-PY
+	$(CONDA_RUN) python -c "import torch, os; print('torch:', torch.__version__); print('built_with_cuda:', torch.version.cuda); print('cuda_available:', torch.cuda.is_available()); print('device_count:', torch.cuda.device_count()); print('CUDA_VISIBLE_DEVICES:', os.environ.get('CUDA_VISIBLE_DEVICES')); print('device_name:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else '<none>')"
 
 # ---- App tasks ----
 build:
-	conda run -n $(ENV) python -m cli.aiobs build
+	$(CONDA_RUN) python -m cli.aiobs build
 
 status:
-	conda run -n $(ENV) python -m cli.aiobs status
+	$(CONDA_RUN) python -m cli.aiobs status
 
 serve:
-	conda run -n $(ENV) python -m cli.aiobs serve --host 127.0.0.1 --port 8000
+	$(CONDA_RUN) python -m cli.aiobs serve --host 127.0.0.1 --port 8000
 
 serve-no-reload:
-	conda run -n $(ENV) python - <<'PY'\
+	$(CONDA_RUN) python - <<'PY'\
 import uvicorn; uvicorn.run("indexer.app:app", host="127.0.0.1", port=8000, reload=False)\
 PY
 
 clean:
 	rm -rf index
+
+# ---- Tests / Safe builds ----
+test:
+	$(CONDA_RUN) env AIOBS_TEST_MODE=1 python -m pytest -q
+
+test-v:
+	$(CONDA_RUN) env AIOBS_TEST_MODE=1 python -m pytest -v
+
+# Build in safe mode (does not touch real index_dir). Optionally set AIOBS_TEST_INDEX_DIR=/tmp/aiobs-test
+build-test:
+	$(CONDA_RUN) env AIOBS_TEST_MODE=1 python -m cli.aiobs build

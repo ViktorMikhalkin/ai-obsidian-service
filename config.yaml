@@ -1,7 +1,8 @@
 # Required paths
 vault_path: "/data/Obsidian/semantic-vault"
 library_paths:
-  - "/home/viktor/library"
+  - "/data/obsidian-test-lib"
+#  - "/home/viktor/library"
 
 # Where to store index files
 index_dir: "index"
