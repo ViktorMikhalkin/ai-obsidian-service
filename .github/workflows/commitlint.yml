@@ -16,7 +16,7 @@ jobs:
           node-version: '20'
       - name: Say Hi
         run: echo "Hello from ${{ github.repository }}!"
-      - name: Hello World
+      - name: Hello World Minor
         run: echo "Hello World!"
       - name: Install dev deps
         run: |
