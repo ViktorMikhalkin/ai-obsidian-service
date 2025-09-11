@@ -16,6 +16,8 @@ jobs:
           node-version: '20'
       - name: Say Hi
         run: echo "Hello from ${{ github.repository }}!"
+      - name: Hello World
+        run: echo "Hello World!"
       - name: Install dev deps
         run: |
           npm ci || npm i
