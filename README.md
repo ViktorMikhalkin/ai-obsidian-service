@@ -161,18 +161,18 @@ pytest --cov=src tests/
 ### Common Issues
 
 #### `pytest: not found`
-**Cause**: Test dependencies not installed  
+**Cause**: Test dependencies not installed
 **Solution**: Run `make install-test-deps` or `make setup-cpu/setup-gpu`
 
 #### `CUDA unavailable`
-**Cause**: GPU drivers or CUDA toolkit issues  
+**Cause**: GPU drivers or CUDA toolkit issues
 **Solution**:
 1. Check GPU driver: `nvidia-smi`
 2. Verify CUDA: `make ENV=aiobs-gpu check-cuda`
 3. If OOM errors: reduce `embeddings.batch_size` in config.yaml
 
 #### `PDFs not parsed`
-**Cause**: Poppler not installed  
+**Cause**: Poppler not installed
 **Solution**: Install Poppler (see [Prerequisites](#prerequisites))
 
 #### `Indexing is slow`
@@ -182,7 +182,7 @@ pytest --cov=src tests/
 - **CPU bottleneck**: Use GPU setup or increase `embeddings.batch_size` (64-128 for GPU)
 
 #### `Import errors or module not found`
-**Cause**: Wrong conda environment activated  
+**Cause**: Wrong conda environment activated
 **Solution**: Activate the correct environment:
 ```bash
 conda activate aiobs-cpu
@@ -197,7 +197,7 @@ conda activate aiobs-gpu
 # config.yaml optimizations
 chunk:
   target_tokens: 200      # Smaller chunks = faster indexing
-  
+
 embeddings:
   batch_size: 128         # Higher batch size for GPU
   device: "cuda"          # Use GPU if available

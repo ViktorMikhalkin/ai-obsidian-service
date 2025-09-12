@@ -25,19 +25,19 @@ _INDEX_DIR.mkdir(parents=True, exist_ok=True)
 (_WORK_ROOT / "config.yaml").write_text(
     (
         "{"
-        f"\"index_dir\": \"{str(_INDEX_DIR).replace('\\', '\\\\')}\","
-        "\"vault_path\": \"\","
-        "\"library_paths\": [],"
-        "\"include_globs\": [\"**/*.md\",\"**/*.pdf\",\"**/*.epub\"],"
-        "\"chunk\": {\"target_tokens\": 16, \"overlap_tokens\": 4},"
-        "\"server\": {\"host\": \"127.0.0.1\", \"port\": 8000},"
-        "\"embeddings\": {"
-        "\"model\": \"intfloat/multilingual-e5-small\","
-        "\"device\": \"cpu\","
-        "\"batch_size\": 8,"
-        "\"faiss\": {"
-        f"\"index_path\": \"{str((_INDEX_DIR / 'faiss.index')).replace('\\', '\\\\')}\","
-        f"\"dim_path\": \"{str((_INDEX_DIR / 'dim.txt')).replace('\\', '\\\\')}\""
+        f'"index_dir": "{str(_INDEX_DIR).replace("\\", "\\\\")}",'
+        '"vault_path": "",'
+        '"library_paths": [],'
+        '"include_globs": ["**/*.md","**/*.pdf","**/*.epub"],'
+        '"chunk": {"target_tokens": 16, "overlap_tokens": 4},'
+        '"server": {"host": "127.0.0.1", "port": 8000},'
+        '"embeddings": {'
+        '"model": "intfloat/multilingual-e5-small",'
+        '"device": "cpu",'
+        '"batch_size": 8,'
+        '"faiss": {'
+        f'"index_path": "{str((_INDEX_DIR / "faiss.index")).replace("\\", "\\\\")}",'
+        f'"dim_path": "{str((_INDEX_DIR / "dim.txt")).replace("\\", "\\\\")}"'
         "}"
         "}"
         "}"
@@ -51,30 +51,48 @@ os.environ.setdefault("AIOBS_TEST_INDEX_DIR", str(_INDEX_DIR))
 # 3) Mock heavy dependencies at import time, so real packages are never loaded
 # Mock sentence_transformers
 st_pkg = types.ModuleType("sentence_transformers")
+
+
 class _DummySentenceTransformer:
     def __init__(self, *args, **kwargs):
         pass
-    def encode(self, texts, batch_size=64, normalize_embeddings=True, show_progress_bar=False):
+
+    def encode(
+        self, texts, batch_size=64, normalize_embeddings=True, show_progress_bar=False
+    ):
         import numpy as _np
+
         return _np.zeros((len(texts), 8), dtype=_np.float32)
+
+
 st_pkg.SentenceTransformer = _DummySentenceTransformer
 sys.modules["sentence_transformers"] = st_pkg
 
 # Mock faiss
 faiss_mod = types.ModuleType("faiss")
+
+
 class _DummyIndexFlatIP:
     def __init__(self, d):
         self.d = d
+
     def add(self, arr):
         pass
+
+
 def _dummy_write_index(index, path):
     Path(path).write_bytes(b"\x00")
+
+
 def _dummy_read_index(path):
     return _DummyIndexFlatIP(8)
+
+
 faiss_mod.IndexFlatIP = _DummyIndexFlatIP
 faiss_mod.write_index = _dummy_write_index
 faiss_mod.read_index = _dummy_read_index
 sys.modules["faiss"] = faiss_mod
+
 
 # 4) Switch CWD to the temp work dir so all relative paths resolve safely
 @pytest.fixture(scope="session", autouse=True)

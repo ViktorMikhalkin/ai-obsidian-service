@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 from indexer.app import app
 
+
 def test_health():
     # Use context manager to properly close the client
     with TestClient(app) as client:

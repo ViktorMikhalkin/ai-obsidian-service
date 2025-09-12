@@ -1,11 +1,15 @@
 import faiss
 import numpy as np
-import tempfile, os, time
+import tempfile
+import os
+import time
 from datetime import datetime as _dt
 from pathlib import Path
 
+
 def _ts(msg: str):
     print(f"[{_dt.now().strftime('%H:%M:%S')}] {msg}")
+
 
 class FaissIndex:
     def __init__(self, dim: int, path: Path):
@@ -40,7 +44,7 @@ class FaissIndex:
             size = os.path.getsize(self.path)
         except Exception:
             size = -1
-        _ts(f"[faiss] saved in {dur:.1f}s, size={size/1e6:.2f} MB")
+        _ts(f"[faiss] saved in {dur:.1f}s, size={size / 1e6:.2f} MB")
 
     @classmethod
     def load(cls, path: Path):

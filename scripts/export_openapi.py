@@ -1,11 +1,11 @@
-
-import sys, pathlib, json
+import sys
+import pathlib
+import json
 from fastapi.openapi.utils import get_openapi
+from indexer.app import app
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-
-from indexer.app import app
 
 schema = get_openapi(
     title=getattr(app, "title", "AI↔Obsidian Indexer"),

@@ -1,6 +1,6 @@
 name: 🧩 Task
 description: Tracked work item
-labels: ["task"]
+labels: [ "task" ]
 body:
   - type: textarea
     id: goal
@@ -21,4 +21,4 @@ body:
     id: owner
     attributes:
       label: Owner
-      placeholder: @username
+      placeholder: "@username"

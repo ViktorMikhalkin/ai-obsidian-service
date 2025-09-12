@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
-import frontmatter, re
+from typing import Dict
+import frontmatter
+import re
 
 CODE_BLOCK_RE = re.compile(r"```[\s\S]*?```", re.MULTILINE)
 INLINE_CODE_RE = re.compile(r"`[^`]*`")
@@ -10,11 +11,13 @@ IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^\)]+\)")
 HTML_TAG_RE = re.compile(r"<[^>]+>")
 HEADER_HASH_RE = re.compile(r"^\s{0,3}#+\s*", re.MULTILINE)
 
+
 @dataclass
 class ParsedNote:
     path: str
     meta: Dict
     text: str
+
 
 def strip_markdown(md: str) -> str:
     md = CODE_BLOCK_RE.sub(" ", md)
@@ -27,6 +30,7 @@ def strip_markdown(md: str) -> str:
     md = re.sub(r"[*_#>`~]+", " ", md)
     md = re.sub(r"\\s+", " ", md)
     return md.strip()
+
 
 def parse_markdown(path: Path):
     try:

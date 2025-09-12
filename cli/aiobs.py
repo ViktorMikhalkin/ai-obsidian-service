@@ -1,4 +1,3 @@
-import sys
 import os
 import json
 import yaml
@@ -39,7 +38,10 @@ def load_config():
     # If AIOBS_TEST_MODE=1 use a safe temp index dir to avoid overwriting real data.
     if str(os.environ.get("AIOBS_TEST_MODE", "0")) == "1":
         import tempfile
-        safe_root = os.environ.get("AIOBS_TEST_INDEX_DIR") or tempfile.mkdtemp(prefix="aiobs-test-")
+
+        safe_root = os.environ.get("AIOBS_TEST_INDEX_DIR") or tempfile.mkdtemp(
+            prefix="aiobs-test-"
+        )
         safe_index_dir = str(Path(safe_root) / "index")
         Path(safe_index_dir).mkdir(parents=True, exist_ok=True)
 
@@ -53,11 +55,11 @@ def load_config():
 
     _ts(
         f"[config] index_dir={_cfg.get('index_dir', 'index')} "
-        f"model={_cfg.get('embeddings',{}).get('model')} "
-        f"device={_cfg.get('embeddings',{}).get('device','cpu')} "
-        f"batch_size={_cfg.get('embeddings',{}).get('batch_size', 64)} "
-        f"dtype={_cfg.get('embeddings',{}).get('dtype','fp32')} "
-        f"search_on={_cfg.get('embeddings',{}).get('faiss',{}).get('search_on','cpu')}"
+        f"model={_cfg.get('embeddings', {}).get('model')} "
+        f"device={_cfg.get('embeddings', {}).get('device', 'cpu')} "
+        f"batch_size={_cfg.get('embeddings', {}).get('batch_size', 64)} "
+        f"dtype={_cfg.get('embeddings', {}).get('dtype', 'fp32')} "
+        f"search_on={_cfg.get('embeddings', {}).get('faiss', {}).get('search_on', 'cpu')}"
     )
 
     return _cfg
@@ -100,13 +102,16 @@ class _Ticker:
     Time-based logger: emits at most once per 'interval' seconds.
     Use to avoid flooding logs with per-item lines.
     """
+
     def __init__(self, interval_sec: float = 2.0):
         import time as _t
+
         self.interval = interval_sec
         self._last = _t.perf_counter()
 
     def should_log(self) -> bool:
         import time as _t
+
         now = _t.perf_counter()
         if now - self._last >= self.interval:
             self._last = now
@@ -161,11 +166,14 @@ def build():
     def add_doc(kind, path_str, raw_text):
         for chunk, (a, b) in chunk_text(raw_text, target_tokens, overlap_tokens):
             preview = chunk[:200]
-            metas.append({"path": path_str, "kind": kind, "span": [a, b], "preview": preview})
+            metas.append(
+                {"path": path_str, "kind": kind, "span": [a, b], "preview": preview}
+            )
             texts.append(chunk)
 
     # Phase: MD
     import time as _t
+
     tick = _Ticker(2.0)
     total = len(notes)
     if total:
@@ -252,7 +260,7 @@ def build():
     processed = 0
 
     for i in range(0, N, batch_size):
-        batch = texts[i:i + batch_size]
+        batch = texts[i : i + batch_size]
         vec = embed.encode(batch, batch_size=batch_size)
         acc.append(vec)
         processed += len(batch)
@@ -265,6 +273,7 @@ def build():
 
     # Finalize vectors
     import numpy as _np
+
     vecs = _np.vstack(acc)
     dur = _t.perf_counter() - t0
     _ts(f"[embed] done: {len(texts)} vectors in {dur:.1f}s, dim={vecs.shape[1]}")
@@ -284,13 +293,16 @@ def build():
     _ts(f"[write] dim → {index_dir / 'dim.txt'}")
     typer.echo(f"[build] chunks: {len(texts)}  dim: {vecs.shape[1]}")
 
+
 @app.command()
 def serve(host: str = "127.0.0.1", port: int = 8000):
     """
     Run the API with autoreload for local development.
     """
     import uvicorn
+
     uvicorn.run("indexer.app:app", host=host, port=port, reload=True)
+
 
 @app.command()
 def status():
@@ -300,6 +312,7 @@ def status():
     idx = Path("index/index.jsonl")
     n = sum(1 for _ in idx.open()) if idx.exists() else 0
     typer.echo(f"[status] chunks: {n}")
+
 
 if __name__ == "__main__":
     app()

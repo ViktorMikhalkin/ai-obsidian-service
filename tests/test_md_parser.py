@@ -1,17 +1,22 @@
 from pathlib import Path
 from indexer.parsers.md_parser import parse_markdown
 
+
 def test_md_parser(tmp_path: Path):
     p = tmp_path / "note.md"
-    p.write_text("""---
+    p.write_text(
+        """---
 title: T
 ---
 # Header
 Some *text* with [link](http://x).
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
     parsed = parse_markdown(p)
     assert parsed is not None
     assert "Some" in parsed.text
+
 
 def test_md_parser_no_frontmatter(tmp_path: Path):
     p = tmp_path / "note2.md"
@@ -19,6 +24,7 @@ def test_md_parser_no_frontmatter(tmp_path: Path):
     parsed = parse_markdown(p)
     assert parsed is not None
     assert "Body without frontmatter" in parsed.text
+
 
 def test_md_parser_empty_file(tmp_path: Path):
     p = tmp_path / "empty.md"

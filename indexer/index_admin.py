@@ -1,16 +1,21 @@
-
 from __future__ import annotations
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Dict, Any
-import os, time, json, yaml, subprocess, sys, datetime
+import time
+import yaml
+import subprocess
+import sys
+import datetime
 
 CONFIG_PATH = Path("config.yaml")
+
 
 def _load_config() -> Dict[str, Any]:
     if not CONFIG_PATH.exists():
         return {}
     return yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+
 
 @dataclass
 class IndexStats:
@@ -20,16 +25,19 @@ class IndexStats:
     last_modified: Optional[str]
     chunks_estimate: Optional[int]
 
+
 def get_index_stats() -> IndexStats:
     cfg = _load_config()
     # default path for faiss index
-    faiss_cfg = (cfg.get("faiss") or {})
+    faiss_cfg = cfg.get("faiss") or {}
     index_path = Path(faiss_cfg.get("index_path") or ".index/faiss.index")
     p = Path(index_path)
     exists = p.exists()
     size_bytes = p.stat().st_size if exists else None
     mtime = p.stat().st_mtime if exists else None
-    last_modified = datetime.datetime.fromtimestamp(mtime).isoformat() if mtime else None
+    last_modified = (
+        datetime.datetime.fromtimestamp(mtime).isoformat() if mtime else None
+    )
 
     # try to estimate chunks from a companion jsonl if present
     jsonl = Path("index/index.jsonl")
@@ -49,13 +57,16 @@ def get_index_stats() -> IndexStats:
         chunks_estimate=chunks_estimate,
     )
 
+
 def rebuild_index(timeout_sec: int = 0) -> Dict[str, Any]:
     """Run CLI build to (re)create the index.
     If timeout_sec > 0, wait up to timeout for completion; otherwise fire-and-return.
     """
     cmd = [sys.executable, "-m", "cli.aiobs", "build"]
     start = time.time()
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
     waited = False
     if timeout_sec and timeout_sec > 0:
         try:

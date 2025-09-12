@@ -2,12 +2,14 @@ import pytest
 from fastapi.testclient import TestClient
 from indexer.app import app
 
+
 def _route_exists(path: str, method: str = "GET") -> bool:
     method = method.upper()
     for r in app.router.routes:
         if getattr(r, "path", None) == path and method in getattr(r, "methods", set()):
             return True
     return False
+
 
 def test_index_stats():
     if not _route_exists("/index/stats", "GET"):
@@ -19,6 +21,7 @@ def test_index_stats():
         assert isinstance(data, dict)
         assert "exists" in data
         assert "index_path" in data
+
 
 def test_index_rebuild_start():
     if not _route_exists("/index/rebuild", "POST"):

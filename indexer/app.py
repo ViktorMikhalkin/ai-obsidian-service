@@ -1,7 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from pathlib import Path
-import json, yaml, traceback, os
+import json
+import yaml
+import traceback
+import os
 from contextlib import asynccontextmanager
 
 # Optional Ollama client
@@ -14,12 +17,14 @@ except Exception:
 from indexer.embedder import Embedder
 from indexer.store.vector_faiss import FaissIndex
 
+
 # ---------------------------
 # Pydantic models (API)
 # ---------------------------
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
+
 
 class SearchHit(BaseModel):
     id: int
@@ -28,21 +33,25 @@ class SearchHit(BaseModel):
     preview: str
     score: float
 
+
 class SearchResponse(BaseModel):
     results: list[SearchHit]
+
 
 class AnswerRequest(BaseModel):
     query: str
     top_k: int = 5
-    mode: str = "auto"          # "auto" (use ollama if available) or "extractive"
-    model: str | None = None    # e.g., "llama3.1:8b"
+    mode: str = "auto"  # "auto" (use ollama if available) or "extractive"
+    model: str | None = None  # e.g., "llama3.1:8b"
     max_tokens: int = 256
     temperature: float = 0.2
+
 
 class AnswerResponse(BaseModel):
     query: str
     answer: str
     sources: list[SearchHit]
+
 
 # ---------------------------
 # App state
@@ -54,6 +63,7 @@ METAS: list[dict] = []
 EMBED = None
 DIM = None
 
+
 # ---------------------------
 # Helpers
 # ---------------------------
@@ -64,6 +74,7 @@ def _load_config():
         CFG = yaml.safe_load(f)
     INDEX_DIR = Path(CFG.get("index_dir", "index"))
     return CFG
+
 
 def _load_index():
     """Load FAISS index + metadata and dimension."""
@@ -89,6 +100,7 @@ def _load_index():
             except Exception:
                 continue
 
+
 def _init_embedder():
     """Initialize the embedding model wrapper."""
     global EMBED
@@ -97,6 +109,7 @@ def _init_embedder():
     device = emb.get("device", "cpu")
     dtype = emb.get("dtype", "fp32")
     EMBED = Embedder(model_name=model, device=device, dtype=dtype)
+
 
 # ---------------------------
 # Lifespan (startup/shutdown)
@@ -114,8 +127,10 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown: nothing to clean up right now
 
+
 # Create app with lifespan
 app = FastAPI(title="AI↔Obsidian Search API", version="1.1.0", lifespan=lifespan)
+
 
 # ---------------------------
 # Routes
@@ -140,6 +155,7 @@ def health():
         "ollama_available": bool(ollama),
     }
 
+
 @app.post("/search", response_model=SearchResponse)
 def search(req: SearchRequest):
     if FA is None or EMBED is None:
@@ -154,25 +170,28 @@ def search(req: SearchRequest):
 
     try:
         qvec = EMBED.encode([q_to_encode], batch_size=1)
-        D, I = FA.index.search(qvec.astype("float32"), req.top_k)
+        D, indices = FA.index.search(qvec.astype("float32"), req.top_k)
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Search error: {e}")
 
     results = []
-    ids = I[0].tolist()
+    ids = indices[0].tolist()
     scores = D[0].tolist()
     for rid, score in zip(ids, scores):
         if 0 <= rid < len(METAS):
             m = METAS[rid]
-            results.append(SearchHit(
-                id=rid,
-                path=m.get("path"),
-                kind=m.get("kind"),
-                preview=m.get("preview", "")[:300],
-                score=float(score),
-            ))
+            results.append(
+                SearchHit(
+                    id=rid,
+                    path=m.get("path"),
+                    kind=m.get("kind"),
+                    preview=m.get("preview", "")[:300],
+                    score=float(score),
+                )
+            )
     return SearchResponse(results=results)
+
 
 def _extractive_summarize(query: str, hits: list[SearchHit]) -> str:
     """Fallback extractive answer if no LLM or no context."""
@@ -185,12 +204,20 @@ def _extractive_summarize(query: str, hits: list[SearchHit]) -> str:
             p = p[:400] + "…"
         snippets.append(f"- [{h.path}] {p}")
     return (
-            f"Query: {query}\n\n"
-            f"Key points from top {len(hits)} results:\n" + "\n".join(snippets) +
-            "\n\n(Generated without an LLM; this is an extractive summary of top passages.)"
+        f"Query: {query}\n\n"
+        f"Key points from top {len(hits)} results:\n"
+        + "\n".join(snippets)
+        + "\n\n(Generated without an LLM; this is an extractive summary of top passages.)"
     )
 
-def _llm_summarize(query: str, hits: list[SearchHit], model: str | None, max_tokens: int, temperature: float) -> str:
+
+def _llm_summarize(
+    query: str,
+    hits: list[SearchHit],
+    model: str | None,
+    max_tokens: int,
+    temperature: float,
+) -> str:
     """Generate answer via Ollama if available; otherwise fallback to extractive summary."""
     if not ollama:
         return _extractive_summarize(query, hits)
@@ -214,12 +241,15 @@ def _llm_summarize(query: str, hits: list[SearchHit], model: str | None, max_tok
         resp = ollama.chat(
             model=chosen_model,
             messages=[{"role": "user", "content": prompt}],
-            options={"temperature": temperature, "num_predict": max_tokens}
+            options={"temperature": temperature, "num_predict": max_tokens},
         )
-        return resp.get("message", {}).get("content", "").strip() or _extractive_summarize(query, hits)
+        return resp.get("message", {}).get(
+            "content", ""
+        ).strip() or _extractive_summarize(query, hits)
     except Exception:
         traceback.print_exc()
         return _extractive_summarize(query, hits)
+
 
 @app.post("/answer", response_model=AnswerResponse)
 def answer(req: AnswerRequest):
@@ -228,5 +258,7 @@ def answer(req: AnswerRequest):
     if req.mode == "extractive":
         ans = _extractive_summarize(req.query, hits)
     else:
-        ans = _llm_summarize(req.query, hits, req.model, req.max_tokens, req.temperature)
+        ans = _llm_summarize(
+            req.query, hits, req.model, req.max_tokens, req.temperature
+        )
     return AnswerResponse(query=req.query, answer=ans, sources=hits)

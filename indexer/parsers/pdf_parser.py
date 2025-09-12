@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Iterator, Tuple
-import subprocess, shutil
+import subprocess
+import shutil
+
 
 def extract_pdf_per_pages(pdf_path: Path) -> Iterator[Tuple[int, str]]:
     if shutil.which("pdftotext") is None:
