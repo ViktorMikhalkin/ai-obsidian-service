@@ -78,7 +78,7 @@ jobs:
             exit 1
           fi
 
-  code-quality-and-tests:
+  code-quality:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -112,9 +112,30 @@ jobs:
         run: |
           if [ -f .pre-commit-config.yaml ]; then
             pre-commit run --all-files --show-diff-on-failure
-          else:
+          else
             echo "No .pre-commit-config.yaml found, skipping."
           fi
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Conda (CPU)
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-activate-base: false
+          activate-environment: aiobs-cpu
+          environment-file: environment.yml
+          python-version: "3.12"
+          use-mamba: true
+
+      - name: Show environment info
+        shell: bash -l {0}
+        run: |
+          which python
+          python -V
 
       - name: Run tests (safe mode)
         env:
