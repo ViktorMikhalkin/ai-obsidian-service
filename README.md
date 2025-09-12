@@ -11,7 +11,6 @@ Local FastAPI service and CLI to index Obsidian Markdown notes and external PDF/
 - Configuration
 - Usage (CLI and API)
 - Development & Testing
-- Commit hooks (husky + commitlint)
 - Troubleshooting
 - Suggested healthchecks & tests
 
@@ -87,7 +86,6 @@ make ENV=aiobs-gpu serve
 
 - `make setup-cpu` — CPU env + deps + pytest
 - `make setup-gpu` — GPU env + deps + pytest
-- `make install` — pip install -r requirements.txt into the selected env
 - `make build` — index data (reads config.yaml)
 - `make build-test` — index in safe test mode (AIOBS_TEST_MODE=1), won't touch real index/
 - `make status` — show number of chunks in index
@@ -138,7 +136,7 @@ make ENV=aiobs-gpu serve
 make ENV=aiobs-gpu build
 
 # Custom Python version and environment
-make PY=3.11 ENV=my-custom-env setup-cpu
+make PY=3.12 ENV=my-custom-env setup-cpu
 
 # Test mode with custom location
 AIOBS_TEST_INDEX_DIR=/tmp/my-test AIOBS_TEST_MODE=1 make build-test
@@ -237,3 +235,5 @@ AIOBS_TEST_MODE=1 make status
 # 4. If successful, try full build
 make build && make serve
 ```
+
+See CONTRIBUTING.md for pre-commit hooks and development guidelines.

@@ -1,43 +1,9 @@
 {
-  "release-type": "simple",
   "packages": {
     ".": {
+      "release-type": "python",
       "package-name": "ai-obsidian-service",
-      "component": "ai-obsidian-service"
+      "version-file": "src/ai_obsidian_service/__version__.py"
     }
-  },
-  "bump-minor-pre-major": true,
-  "bump-patch-for-minor-pre-major": true,
-  "changelog-types": [
-    {
-      "type": "feat",
-      "section": "Features",
-      "hidden": false
-    },
-    {
-      "type": "fix",
-      "section": "Bug Fixes",
-      "hidden": false
-    },
-    {
-      "type": "perf",
-      "section": "Performance",
-      "hidden": false
-    },
-    {
-      "type": "docs",
-      "section": "Documentation",
-      "hidden": false
-    },
-    {
-      "type": "test",
-      "section": "Tests",
-      "hidden": true
-    },
-    {
-      "type": "chore",
-      "section": "Chores",
-      "hidden": true
-    }
-  ]
+  }
 }

@@ -1,27 +1,102 @@
-name: ci
+name: CI
+
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main]
+  push:
+    branches: [main]
+
 permissions:
   contents: read
+
 jobs:
-  test:
-    name: test (pytest)
+  validate-commits:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
-          python-version: '3.13'
-      - name: Install system deps (poppler)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
-      - name: Install Python dependencies
+          fetch-depth: 0
+
+      - name: Set up Python (for commit policy script)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate commits in PR (cc_policy; central types/scopes)
+        if: github.event_name == 'pull_request'
+        shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest
-      - name: Run tests
+          pip install tomli || true
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+          commits=$(git rev-list --reverse "$base_sha..$head_sha")
+          bad=0
+          while read -r c; do
+            subj="$(git log --format=%s -n 1 "$c")"
+            echo "Checking: $subj"
+            if ! python scripts/cc_policy.py --message "$subj"; then
+              bad=1
+            fi
+          done <<< "$commits"
+          if [ "$bad" -ne 0 ]; then
+            echo "::error::Conventional Commits check failed."
+            exit 1
+          fi
+
+      - name: Block merge commits
+        if: github.event_name == 'pull_request'
         run: |
-          export AIOBS_TEST_MODE=1
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+          if [ -n "$(git log --oneline --merges "$base_sha..$head_sha")" ]; then
+            echo "::error::Merge commits detected. Linear history required."
+            exit 1
+          fi
+          echo "✅ Linear history OK"
+
+  code-quality-and-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Conda (CPU)
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-activate-base: false
+          activate-environment: aiobs-cpu
+          environment-file: environment.yml
+          python-version: "3.12"
+          use-mamba: true
+
+      - name: Show environment info
+        shell: bash -l {0}
+        run: |
+          which python
+          python -V
+          conda info
+          conda list | sed -n '1,80p'
+
+      - name: Install pre-commit
+        shell: bash -l {0}
+        run: |
+          python -m pip install --upgrade pip
+          pip install pre-commit
+
+      - name: Run pre-commit (ruff, mypy, etc.)
+        shell: bash -l {0}
+        run: |
+          if [ -f .pre-commit-config.yaml ]; then
+            pre-commit run --all-files --show-diff-on-failure
+          else
+            echo "No .pre-commit-config.yaml found, skipping."
+          fi
+
+      - name: Run tests (safe mode)
+        env:
+          AIOBS_TEST_MODE: "1"
+        shell: bash -l {0}
+        run: |
           pytest -q

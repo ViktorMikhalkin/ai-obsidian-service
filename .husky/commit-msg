@@ -1,6 +1,0 @@
-#!/usr/bin/env sh
-set -e
-
-# Husky v9+: file-based hook, без husky.sh
-# Check commit message
-#npx --no-install commitlint --edit "$1"
