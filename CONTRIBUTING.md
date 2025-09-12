@@ -4,7 +4,6 @@
 ## Conventional Commit policy
 Types: feat, fix, docs, style, refactor, test, chore, ci, build, **perf**.
 Scopes are configured in `pyproject.toml` under `[tool.ccpolicy]`.
-`commit-msg` hook and CI both use the same policy via `scripts/cc_policy.py`.
 
 
 ### Allowed scopes
@@ -24,7 +23,6 @@ PR заголовки от Release Please используют `chore(main): rel
   - `chore(repo): bump hooks`
   - `refactor(rag)!: remove legacy retriever`
 
-Локальный `commit-msg` хук и CI используют один валидатор (`scripts/cc_policy.py`), который читает правила из `[tool.ccpolicy]` в `pyproject.toml`.
 
 ## Pre-commit hooks
 

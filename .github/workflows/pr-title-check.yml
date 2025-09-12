@@ -8,18 +8,33 @@ jobs:
   check-pr-title:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - name: Validate PR title (Conventional Commits)
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          python-version: '3.12'
-
-      - name: Validate PR title (Conventional Commits via cc_policy)
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          pip install tomli || true
-          title="${{ github.event.pull_request.title }}"
-          python scripts/cc_policy.py --title "$title"
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            test
+            chore
+            ci
+            build
+            perf
+          scopes: |
+            index
+            parser
+            faiss
+            rag
+            repo
+            api
+            cli
+            ci
+            packaging
+            docs
+          requireScope: true
+          subjectPattern: '^[^\s].+$'
+          subjectPatternError: 'Subject must not be empty and must not start with whitespace.'
