@@ -6,3 +6,8 @@ allow_scopeless = false
 header_max_length = 72
 forbid_trailing_period = true
 subject_min_length = 3
+
+[tool.mypy]
+ignore_missing_imports = true
+follow_imports = "silent"
+allow_subclassing_any = true
