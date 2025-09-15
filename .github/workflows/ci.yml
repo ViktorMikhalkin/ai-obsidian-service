@@ -107,7 +107,7 @@ jobs:
 
       - name: Clear mypy cache
         run: |
-          conda run -n aiobs-cpu mypy --clear-cache
+          conda run -n aiobs-cpu python -m mypy --clear-cache
 
       - name: Install pre-commit
         run: |
