@@ -101,6 +101,12 @@ jobs:
           conda info
           conda list | sed -n '1,80p'
 
+      - name: Ensure types-PyYAML is installed
+        shell: bash -l {0}
+        run: |
+          pip install types-PyYAML
+
+
       - name: Install pre-commit
         shell: bash -l {0}
         run: |
