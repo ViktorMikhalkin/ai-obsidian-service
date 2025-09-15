@@ -3,7 +3,7 @@
     ".": {
       "release-type": "python",
       "package-name": "ai-obsidian-service",
-      "version-file": "src/ai_obsidian_service/__version__.py"
+      "version-file": "__version__.py"
     }
   }
 }
