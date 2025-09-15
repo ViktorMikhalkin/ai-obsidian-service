@@ -65,7 +65,7 @@ class _DummySentenceTransformer:
         return _np.zeros((len(texts), 8), dtype=_np.float32)
 
 
-st_pkg.SentenceTransformer = _DummySentenceTransformer
+st_pkg.SentenceTransformer = _DummySentenceTransformer  # type: ignore[attr-defined]
 sys.modules["sentence_transformers"] = st_pkg
 
 # Mock faiss
@@ -88,9 +88,9 @@ def _dummy_read_index(path):
     return _DummyIndexFlatIP(8)
 
 
-faiss_mod.IndexFlatIP = _DummyIndexFlatIP
-faiss_mod.write_index = _dummy_write_index
-faiss_mod.read_index = _dummy_read_index
+faiss_mod.IndexFlatIP = _DummyIndexFlatIP  # type: ignore[attr-defined]
+faiss_mod.write_index = _dummy_write_index  # type: ignore[attr-defined]
+faiss_mod.read_index = _dummy_read_index  # type: ignore[attr-defined]
 sys.modules["faiss"] = faiss_mod
 
 

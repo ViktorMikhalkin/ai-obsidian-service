@@ -45,6 +45,8 @@ setup-cpu:
 setup-gpu:
 	@conda env list | grep -E '^$(ENV)\s' >/dev/null || conda env create -n $(ENV) -f environment.gpu.yml
 	@conda env update -n $(ENV) -f environment.gpu.yml --prune
+	@conda install -n $(ENV) -c conda-forge pre-commit -y
+	@conda run -n $(ENV) pre-commit install
 	@conda run -n $(ENV) python -c "import sys; print('Python:', sys.version)"
 
 check-cuda:

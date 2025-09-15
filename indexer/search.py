@@ -22,7 +22,7 @@ def search(query: str, top_k: int = 8):
     if not (_fa and _meta and _emb):
         return []
     q = _emb.encode([query])[0]
-    scores, idx = _fa.search(q, top_k=top_k)
+    scores, idx = _fa.search(q, top_k=top_k)  # type: ignore[attr-defined]
     hits = []
     for rank, rid in enumerate(idx[0]):
         if rid < 0 or rid >= len(_meta):

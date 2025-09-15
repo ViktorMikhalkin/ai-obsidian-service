@@ -16,10 +16,12 @@ class Embedder:
         self.model = SentenceTransformer(model_name, device=device)
 
     def encode(self, texts, batch_size: int = 64) -> np.ndarray:
-        """Получить векторы для списка текстов."""
-        return self.model.encode(
+        """Get vectors for the list of texts."""
+        raw = self.model.encode(
             texts,
             batch_size=batch_size,
             normalize_embeddings=True,
             show_progress_bar=False,
         )
+
+        return np.array(raw, dtype=self.dtype)

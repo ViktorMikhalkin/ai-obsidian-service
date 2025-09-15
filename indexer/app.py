@@ -6,16 +6,18 @@ import yaml
 import traceback
 import os
 from contextlib import asynccontextmanager
+from indexer.embedder import Embedder
+from indexer.store.vector_faiss import FaissIndex
+
+from typing import Any
+
+ollama: Any = None
 
 # Optional Ollama client
 try:
     import ollama  # type: ignore
 except Exception:
     ollama = None
-
-# Local imports
-from indexer.embedder import Embedder
-from indexer.store.vector_faiss import FaissIndex
 
 
 # ---------------------------
