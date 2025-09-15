@@ -39,3 +39,4 @@ dependencies:
       - pre-commit==4.3.0
       - mypy==1.18.1
       - ruff==0.13.0
+      - types-PyYAML
