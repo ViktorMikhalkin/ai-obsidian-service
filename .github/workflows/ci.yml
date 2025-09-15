@@ -101,10 +101,6 @@ jobs:
           conda info
           conda list | sed -n '1,80p'
 
-      - name: Ensure types-PyYAML is installed
-        run: |
-          conda run -n aiobs-cpu pip install types-PyYAML
-
       - name: Clear mypy cache
         run: |
           conda run -n aiobs-cpu python -c "import shutil; shutil.rmtree('.mypy_cache', ignore_errors=True)"
