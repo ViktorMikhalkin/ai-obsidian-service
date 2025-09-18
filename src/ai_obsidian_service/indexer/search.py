@@ -1,7 +1,8 @@
 import json
 from pathlib import Path
-from .models import SearchHit
+
 from .embedder import Embedder
+from .models import SearchHit
 from .store.vector_faiss import FaissIndex
 
 _dim_path = Path("index/dim.txt")

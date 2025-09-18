@@ -1,18 +1,19 @@
-import os
-import json
-import yaml
 import fnmatch
+import json
+import os
+from datetime import datetime as _dt
+from pathlib import Path
+
 import typer
 import typer as _typer
-from pathlib import Path
-from datetime import datetime as _dt
+import yaml
 
-from indexer.parsers.md_parser import parse_markdown
-from indexer.parsers.pdf_parser import extract_pdf_per_pages
-from indexer.parsers.epub_parser import iter_epub_docs
-from indexer.parsers.chunker import chunk_text
-from indexer.embedder import Embedder
-from indexer.store.vector_faiss import FaissIndex
+from ai_obsidian_service.indexer.embedder import Embedder
+from ai_obsidian_service.indexer.parsers.chunker import chunk_text
+from ai_obsidian_service.indexer.parsers.epub_parser import iter_epub_docs
+from ai_obsidian_service.indexer.parsers.md_parser import parse_markdown
+from ai_obsidian_service.indexer.parsers.pdf_parser import extract_pdf_per_pages
+from ai_obsidian_service.indexer.store.vector_faiss import FaissIndex
 
 
 def _ts(msg: str):
@@ -31,7 +32,7 @@ def load_config():
     Load config.yaml and apply safe test-mode overrides if AIOBS_TEST_MODE=1.
     Also prints a short summary of key settings.
     """
-    with open("config.yaml", "r", encoding="utf-8") as f:
+    with open("config.yaml", encoding="utf-8") as f:
         _cfg = yaml.safe_load(f.read())
 
     # --- SAFETY MODE FOR TESTS / CI ---

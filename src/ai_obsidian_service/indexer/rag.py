@@ -1,8 +1,9 @@
-from typing import Tuple, List
 from pathlib import Path
+
 import yaml
-from .models import Citation, SearchHit
+
 from .llm_ollama import ollama_generate
+from .models import Citation, SearchHit
 
 _cfg = yaml.safe_load(Path("config.yaml").read_text())
 _LLM_MODEL = _cfg.get("llm", {}).get("model", "qwen2.5:7b-instruct")
@@ -15,7 +16,7 @@ SYSTEM_PROMPT = (
 )
 
 
-def _build_prompt(query: str, hits: List[SearchHit]) -> str:
+def _build_prompt(query: str, hits: list[SearchHit]) -> str:
     ctx_lines = []
     for i, h in enumerate(hits[:6], 1):
         ctx_lines.append(f"[{i}] {h.doc_path}\n{h.preview}\n")
@@ -23,7 +24,7 @@ def _build_prompt(query: str, hits: List[SearchHit]) -> str:
     return f"{SYSTEM_PROMPT}\nQuestion: {query}\n\nContext:\n{context}\n\nAnswer:"
 
 
-def _extractive(hits: List[SearchHit]) -> Tuple[str, List[Citation]]:
+def _extractive(hits: list[SearchHit]) -> tuple[str, list[Citation]]:
     cits = [
         Citation(doc_path=h.doc_path, chunk_id=h.chunk_id, snippet=h.preview, span=None)
         for h in hits[:6]
@@ -40,8 +41,8 @@ def _extractive(hits: List[SearchHit]) -> Tuple[str, List[Citation]]:
 
 
 def answer_with_citations(
-    query: str, hits: List[SearchHit]
-) -> Tuple[str, List[Citation]]:
+    query: str, hits: list[SearchHit]
+) -> tuple[str, list[Citation]]:
     if not hits:
         return ("No relevant excerpts found.", [])
     if _MODE == "extractive":
