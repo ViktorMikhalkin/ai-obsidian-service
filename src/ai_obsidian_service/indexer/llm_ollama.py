@@ -1,5 +1,6 @@
-from ollama import Client
 import os
+
+from ollama import Client
 
 
 def _client():

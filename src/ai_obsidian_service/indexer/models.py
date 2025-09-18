@@ -1,5 +1,4 @@
 from pydantic import BaseModel
-from typing import List, Optional
 
 
 class SearchRequest(BaseModel):
@@ -11,7 +10,7 @@ class Citation(BaseModel):
     doc_path: str
     chunk_id: str
     snippet: str
-    span: Optional[List[int]] = None
+    span: list[int] | None = None
 
 
 class SearchHit(BaseModel):
@@ -22,7 +21,7 @@ class SearchHit(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    hits: List[SearchHit]
+    hits: list[SearchHit]
 
 
 class AnswerRequest(BaseModel):
@@ -32,4 +31,4 @@ class AnswerRequest(BaseModel):
 
 class AnswerResponse(BaseModel):
     answer: str
-    citations: List[Citation]
+    citations: list[Citation]

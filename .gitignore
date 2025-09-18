@@ -5,7 +5,11 @@ __pycache__/
 dist/
 build/
 index/
+.index/
+.mypy_cache/
 .pytest_cache/
+.ruff_cache/
 .idea/
 .env
 .env.local
+tests/__pycache__/

@@ -1,15 +1,16 @@
+import json
+import os
+import traceback
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
+
+import yaml
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from pathlib import Path
-import json
-import yaml
-import traceback
-import os
-from contextlib import asynccontextmanager
-from indexer.embedder import Embedder
-from indexer.store.vector_faiss import FaissIndex
 
-from typing import Any
+from ai_obsidian_service.indexer.embedder import Embedder
+from ai_obsidian_service.indexer.store.vector_faiss import FaissIndex
 
 ollama: Any = None
 
@@ -72,7 +73,7 @@ DIM = None
 def _load_config():
     """Load config.yaml from current working directory."""
     global CFG, INDEX_DIR
-    with open("config.yaml", "r", encoding="utf-8") as f:
+    with open("config.yaml", encoding="utf-8") as f:
         CFG = yaml.safe_load(f)
     INDEX_DIR = Path(CFG.get("index_dir", "index"))
     return CFG
@@ -95,7 +96,7 @@ def _load_index():
     DIM = int(Path(dim_path).read_text().strip())
 
     METAS = []
-    with open(meta_path, "r", encoding="utf-8") as f:
+    with open(meta_path, encoding="utf-8") as f:
         for line in f:
             try:
                 METAS.append(json.loads(line))
@@ -180,7 +181,7 @@ def search(req: SearchRequest):
     results = []
     ids = indices[0].tolist()
     scores = D[0].tolist()
-    for rid, score in zip(ids, scores):
+    for rid, score in zip(ids, scores, strict=False):
         if 0 <= rid < len(METAS):
             m = METAS[rid]
             results.append(

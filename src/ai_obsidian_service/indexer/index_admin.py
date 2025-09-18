@@ -1,17 +1,19 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Optional, Dict, Any
-import time
-import yaml
+
+import datetime
 import subprocess
 import sys
-import datetime
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import yaml
 
 CONFIG_PATH = Path("config.yaml")
 
 
-def _load_config() -> Dict[str, Any]:
+def _load_config() -> dict[str, Any]:
     if not CONFIG_PATH.exists():
         return {}
     return yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
@@ -21,9 +23,9 @@ def _load_config() -> Dict[str, Any]:
 class IndexStats:
     index_path: str
     exists: bool
-    size_bytes: Optional[int]
-    last_modified: Optional[str]
-    chunks_estimate: Optional[int]
+    size_bytes: int | None
+    last_modified: str | None
+    chunks_estimate: int | None
 
 
 def get_index_stats() -> IndexStats:
@@ -58,7 +60,7 @@ def get_index_stats() -> IndexStats:
     )
 
 
-def rebuild_index(timeout_sec: int = 0) -> Dict[str, Any]:
+def rebuild_index(timeout_sec: int = 0) -> dict[str, Any]:
     """Run CLI build to (re)create the index.
     If timeout_sec > 0, wait up to timeout for completion; otherwise fire-and-return.
     """

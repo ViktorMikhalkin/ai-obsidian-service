@@ -1,10 +1,10 @@
-from pathlib import Path
-from typing import Iterator, Tuple
-import subprocess
 import shutil
+import subprocess
+from collections.abc import Iterator
+from pathlib import Path
 
 
-def extract_pdf_per_pages(pdf_path: Path) -> Iterator[Tuple[int, str]]:
+def extract_pdf_per_pages(pdf_path: Path) -> Iterator[tuple[int, str]]:
     if shutil.which("pdftotext") is None:
         raise RuntimeError("Missing `pdftotext`. Install poppler-utils.")
     cmd = ["pdftotext", "-layout", "-q", str(pdf_path), "-"]

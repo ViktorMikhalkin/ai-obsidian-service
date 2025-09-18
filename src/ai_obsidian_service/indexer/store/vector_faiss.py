@@ -1,10 +1,11 @@
-import faiss
-import numpy as np
-import tempfile
 import os
+import tempfile
 import time
 from datetime import datetime as _dt
 from pathlib import Path
+
+import faiss
+import numpy as np
 
 
 def _ts(msg: str):

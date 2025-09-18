@@ -1,6 +1,7 @@
-from ebooklib import epub
 import re
-from typing import Iterator, Tuple
+from collections.abc import Iterator
+
+from ebooklib import epub
 
 TAG_RE = re.compile(r"<[^>]+>")
 
@@ -10,7 +11,7 @@ def _strip_html(html: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def iter_epub_docs(epub_path) -> Iterator[Tuple[str, str]]:
+def iter_epub_docs(epub_path) -> Iterator[tuple[str, str]]:
     book = epub.read_epub(str(epub_path))
     for item in book.get_items():
         if item.get_type() == 9:

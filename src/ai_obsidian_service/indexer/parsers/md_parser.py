@@ -1,8 +1,8 @@
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict
+
 import frontmatter
-import re
 
 CODE_BLOCK_RE = re.compile(r"```[\s\S]*?```", re.MULTILINE)
 INLINE_CODE_RE = re.compile(r"`[^`]*`")
@@ -15,7 +15,7 @@ HEADER_HASH_RE = re.compile(r"^\s{0,3}#+\s*", re.MULTILINE)
 @dataclass
 class ParsedNote:
     path: str
-    meta: Dict
+    meta: dict
     text: str
 
 
