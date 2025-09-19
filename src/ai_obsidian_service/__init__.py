@@ -19,7 +19,7 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 try:
     from .__version__ import __version__
 except Exception:  # pragma: no cover
-    __version__ = "0.0.0"  # fallback if version file is missing during build
+    __version__ = "0.1.0"  # fallback if version file is missing during build
 
 # Lightweight re-exports from subpackages. Import only symbols that are cheap and safe.
 try:
