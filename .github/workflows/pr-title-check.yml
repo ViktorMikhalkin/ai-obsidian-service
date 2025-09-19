@@ -40,6 +40,7 @@ jobs:
             packaging
             docs
             core
+            main
           requireScope: true
           subjectPattern: '^[^\s].+$'
           subjectPatternError: 'Subject must not be empty and must not start with whitespace.'
