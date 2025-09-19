@@ -25,7 +25,7 @@ jobs:
           set -euo pipefail
           EVENT_NAME="${{ github.event_name }}"
           TYPE_RE='feat|fix|docs|style|refactor|test|chore|ci|build|perf'
-          SCOPE_RE='index|parser|faiss|rag|repo|api|cli|ci|packaging|docs|release|core'
+          SCOPE_RE='index|parser|faiss|rag|repo|api|cli|ci|packaging|docs|release|core|main'
           REGEX="^(${TYPE_RE})(\\((${SCOPE_RE})\\))?:\\s.+"
 
           if [ "$EVENT_NAME" = "pull_request" ]; then
