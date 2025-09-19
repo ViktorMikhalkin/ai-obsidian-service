@@ -1,271 +1,83 @@
-import json
-import os
-import traceback
-from contextlib import asynccontextmanager
-from pathlib import Path
-from typing import Any
+from functools import lru_cache
 
-import yaml
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import Depends, FastAPI
 
-from ai_obsidian_service.indexer.embedder import Embedder
-from ai_obsidian_service.indexer.store.vector_faiss import FaissIndex
-
-ollama: Any = None
-
-# Optional Ollama client
-try:
-    import ollama  # type: ignore
-except Exception:
-    ollama = None
+from .schemas import (
+    AnswerRequest,
+    AnswerResponse,
+    SearchHit,
+    SearchRequest,
+    SearchResponse,
+)
+from .services import IndexerService
 
 
-# ---------------------------
-# Pydantic models (API)
-# ---------------------------
-class SearchRequest(BaseModel):
-    query: str
-    top_k: int = 5
+@lru_cache(maxsize=1)
+def get_indexer_service():
+    # In production, consider caching this instance for better performance
+    return IndexerService()
 
 
-class SearchHit(BaseModel):
-    id: int
-    path: str
-    kind: str
-    preview: str
-    score: float
-
-
-class SearchResponse(BaseModel):
-    results: list[SearchHit]
-
-
-class AnswerRequest(BaseModel):
-    query: str
-    top_k: int = 5
-    mode: str = "auto"  # "auto" (use ollama if available) or "extractive"
-    model: str | None = None  # e.g., "llama3.1:8b"
-    max_tokens: int = 256
-    temperature: float = 0.2
-
-
-class AnswerResponse(BaseModel):
-    query: str
-    answer: str
-    sources: list[SearchHit]
-
-
-# ---------------------------
-# App state
-# ---------------------------
-CFG = {}
-INDEX_DIR = None
-FA = None
-METAS: list[dict] = []
-EMBED = None
-DIM = None
-
-
-# ---------------------------
-# Helpers
-# ---------------------------
-def _load_config():
-    """Load config.yaml from current working directory."""
-    global CFG, INDEX_DIR
-    with open("config.yaml", encoding="utf-8") as f:
-        CFG = yaml.safe_load(f)
-    INDEX_DIR = Path(CFG.get("index_dir", "index"))
-    return CFG
-
-
-def _load_index():
-    """Load FAISS index + metadata and dimension."""
-    global FA, METAS, DIM
-
-    if INDEX_DIR is None:
-        raise ValueError("INDEX_DIR is None. Did you forget to call _load_config()?")
-
-    idx_path = INDEX_DIR / "faiss.index"
-    meta_path = INDEX_DIR / "index.jsonl"
-    dim_path = INDEX_DIR / "dim.txt"
-
-    if not idx_path.exists() or not meta_path.exists() or not dim_path.exists():
-        raise FileNotFoundError(
-            f"Missing index artifacts in {INDEX_DIR}. "
-            f"Expected faiss.index, index.jsonl, dim.txt"
-        )
-
-    FA = FaissIndex.load(idx_path)
-    DIM = int(Path(dim_path).read_text().strip())
-
-    METAS = []
-    with open(meta_path, encoding="utf-8") as f:
-        for line in f:
-            try:
-                METAS.append(json.loads(line))
-            except Exception:
-                continue
-
-
-def _init_embedder():
-    """Initialize the embedding model wrapper."""
-    global EMBED
-    emb = CFG.get("embeddings", {}) or {}
-    model = emb.get("model", "intfloat/multilingual-e5-small")
-    device = emb.get("device", "cpu")
-    dtype = emb.get("dtype", "fp32")
-    EMBED = Embedder(model_name=model, device=device, dtype=dtype)
-
-
-# ---------------------------
-# Lifespan (startup/shutdown)
-# ---------------------------
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup: attempt to load config, index, and embedder.
-    try:
-        _load_config()
-        _load_index()
-        _init_embedder()
-    except Exception:
-        # Keep app running; /health will report problems
-        traceback.print_exc()
-    yield
-    # Shutdown: nothing to clean up right now
-
-
-# Create app with lifespan
-app = FastAPI(title="AI↔Obsidian Search API", version="1.1.0", lifespan=lifespan)
-
-
-# ---------------------------
-# Routes
-# ---------------------------
-@app.get("/health")
-def health():
-    errors = []
-    if not CFG:
-        errors.append("config_not_loaded")
-    if FA is None:
-        errors.append("faiss_not_loaded")
-    if EMBED is None:
-        errors.append("embedder_not_initialized")
-    return {
-        "ok": len(errors) == 0,
-        "errors": errors,
-        "index_dir": str(INDEX_DIR) if INDEX_DIR else None,
-        "chunks": len(METAS),
-        "dim": DIM,
-        "model": (CFG.get("embeddings", {}) or {}).get("model") if CFG else None,
-        "device": (CFG.get("embeddings", {}) or {}).get("device") if CFG else None,
-        "ollama_available": bool(ollama),
-    }
+app = FastAPI()
 
 
 @app.post("/search", response_model=SearchResponse)
-def search(req: SearchRequest):
-    if FA is None or EMBED is None:
-        raise HTTPException(status_code=503, detail="Service not ready. Check /health.")
-    q = req.query.strip()
-    if not q:
-        raise HTTPException(status_code=400, detail="Empty query")
-
-    # E5 models benefit from "query: " prefix
-    model_name = (CFG.get("embeddings", {}) or {}).get("model", "")
-    q_to_encode = ("query: " + q) if "e5" in model_name.lower() else q
-
-    try:
-        qvec = EMBED.encode([q_to_encode], batch_size=1)
-        D, indices = FA.index.search(qvec.astype("float32"), req.top_k)
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Search error: {e}") from e
-
+async def search(
+    request: SearchRequest,
+    service: IndexerService = Depends(get_indexer_service),
+):
+    # 1. Embed the query
+    query_embedding = service.embed.embed([request.query])[0]
+    # 2. Perform search in the vector index
+    top_indices, top_scores = service.fa.search(query_embedding, k=request.top_k)
     results = []
-    ids = indices[0].tolist()
-    scores = D[0].tolist()
-    for rid, score in zip(ids, scores, strict=False):
-        if 0 <= rid < len(METAS):
-            m = METAS[rid]
+    for idx, score in zip(top_indices, top_scores, strict=False):
+        if idx < len(service.metas):
+            meta = service.metas[idx]
             results.append(
                 SearchHit(
-                    id=rid,
-                    path=m.get("path"),
-                    kind=m.get("kind"),
-                    preview=m.get("preview", "")[:300],
+                    id=idx,
+                    path=meta.get("path", ""),
+                    kind=meta.get("kind", ""),
+                    preview=meta.get("preview", meta.get("text", "")[:200]),
                     score=float(score),
                 )
             )
     return SearchResponse(results=results)
 
 
-def _extractive_summarize(query: str, hits: list[SearchHit]) -> str:
-    """Fallback extractive answer if no LLM or no context."""
-    if not hits:
-        return "No relevant results were found."
-    snippets = []
-    for h in hits[:5]:
-        p = h.preview.replace("\n", " ").strip()
-        if len(p) > 400:
-            p = p[:400] + "…"
-        snippets.append(f"- [{h.path}] {p}")
-    return (
-        f"Query: {query}\n\n"
-        f"Key points from top {len(hits)} results:\n"
-        + "\n".join(snippets)
-        + "\n\n(Generated without an LLM; this is an extractive summary of top passages.)"
-    )
-
-
-def _llm_summarize(
-    query: str,
-    hits: list[SearchHit],
-    model: str | None,
-    max_tokens: int,
-    temperature: float,
-) -> str:
-    """Generate answer via Ollama if available; otherwise fallback to extractive summary."""
-    if not ollama:
-        return _extractive_summarize(query, hits)
-    if not hits:
-        return "No relevant results were found."
-
-    ctx_parts = []
-    for i, h in enumerate(hits[:8], 1):
-        ctx_parts.append(f"[{i}] PATH: {h.path}\nPREVIEW: {h.preview}")
-    context = "\n\n".join(ctx_parts)
-
-    chosen_model = model or os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
-    prompt = (
-        "You are a helpful assistant. Answer the user concisely using ONLY the context snippets "
-        "below. Prefer concrete steps and short bullet points. If the answer is not in context, say so.\n\n"
-        f"QUESTION:\n{query}\n\n"
-        f"CONTEXT SNIPPETS:\n{context}\n\n"
-        "RESPONSE (English, concise, include a short 'Why this matters' if appropriate):"
-    )
-    try:
-        resp = ollama.chat(
-            model=chosen_model,
-            messages=[{"role": "user", "content": prompt}],
-            options={"temperature": temperature, "num_predict": max_tokens},
-        )
-        return resp.get("message", {}).get(
-            "content", ""
-        ).strip() or _extractive_summarize(query, hits)
-    except Exception:
-        traceback.print_exc()
-        return _extractive_summarize(query, hits)
-
-
 @app.post("/answer", response_model=AnswerResponse)
-def answer(req: AnswerRequest):
-    sres = search(SearchRequest(query=req.query, top_k=req.top_k))
-    hits = sres.results
-    if req.mode == "extractive":
-        ans = _extractive_summarize(req.query, hits)
+async def answer(
+    request: AnswerRequest,
+    service: IndexerService = Depends(get_indexer_service),
+):
+    # Step 1: Embed query and retrieve top_k passages
+    query_embedding = service.embed.embed([request.query])[0]
+    top_indices, top_scores = service.fa.search(query_embedding, k=request.top_k)
+    sources = []
+    context_chunks = []
+    for idx, score in zip(top_indices, top_scores, strict=False):
+        if idx < len(service.metas):
+            meta = service.metas[idx]
+            sources.append(
+                SearchHit(
+                    id=idx,
+                    path=meta.get("path", ""),
+                    kind=meta.get("kind", ""),
+                    preview=meta.get("preview", meta.get("text", "")[:200]),
+                    score=float(score),
+                )
+            )
+            # Collect context for extractive answer
+            context_chunks.append(meta.get("text", ""))
+
+    # Step 2: Generate answer (extractive mode for now)
+    # For "auto" mode, you can plug in an LLM call here if available
+    answer_text = ""
+    if context_chunks:
+        # Simple extractive: return the most relevant chunk (could be improved)
+        answer_text = context_chunks[0][: request.max_tokens]
     else:
-        ans = _llm_summarize(
-            req.query, hits, req.model, req.max_tokens, req.temperature
-        )
-    return AnswerResponse(query=req.query, answer=ans, sources=hits)
+        answer_text = "No relevant information found."
+
+    return AnswerResponse(query=request.query, answer=answer_text, sources=sources)
