@@ -39,6 +39,7 @@ jobs:
             ci
             packaging
             docs
+            core
           requireScope: true
           subjectPattern: '^[^\s].+$'
           subjectPatternError: 'Subject must not be empty and must not start with whitespace.'
