@@ -23,6 +23,7 @@
 - [ ] docs
 - [ ] ci
 - [ ] repo
+- [ ] core
 
 ## Description
 <!-- Summarize the change and motivation/context. -->
