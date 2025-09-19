@@ -8,7 +8,7 @@ def main() -> int:
     try:
         from .index_admin import rebuild_index  # real implementation
     except Exception as e:  # pragma: no cover
-        raise SystemExit(f"[build] entrypoint not found in index_admin: {e}")
+        raise SystemExit(f"[build] entrypoint not found in index_admin: {e}") from e
 
     # Optional timeout via env (cast to int if provided)
     timeout_env = os.getenv("AIOBS_TIMEOUT_SEC")

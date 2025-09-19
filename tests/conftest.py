@@ -1,8 +1,9 @@
 import os
 import sys
 import tempfile
-from pathlib import Path
 import types
+from pathlib import Path
+
 import pytest
 
 # 1) Ensure repository root is on PYTHONPATH so `from indexer ...` works

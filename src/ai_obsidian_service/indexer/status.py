@@ -10,7 +10,7 @@ def main() -> int:
     try:
         from .index_admin import get_index_stats  # ✅ correct name
     except Exception as e:  # pragma: no cover
-        raise SystemExit(f"[status] entrypoint not found in index_admin: {e}")
+        raise SystemExit(f"[status] entrypoint not found in index_admin: {e}") from e
 
     stats = get_index_stats()  # обычно без аргументов
     try:

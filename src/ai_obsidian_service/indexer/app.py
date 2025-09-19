@@ -82,6 +82,10 @@ def _load_config():
 def _load_index():
     """Load FAISS index + metadata and dimension."""
     global FA, METAS, DIM
+
+    if INDEX_DIR is None:
+        raise ValueError("INDEX_DIR is None. Did you forget to call _load_config()?")
+
     idx_path = INDEX_DIR / "faiss.index"
     meta_path = INDEX_DIR / "index.jsonl"
     dim_path = INDEX_DIR / "dim.txt"
@@ -176,7 +180,7 @@ def search(req: SearchRequest):
         D, indices = FA.index.search(qvec.astype("float32"), req.top_k)
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Search error: {e}")
+        raise HTTPException(status_code=500, detail=f"Search error: {e}") from e
 
     results = []
     ids = indices[0].tolist()

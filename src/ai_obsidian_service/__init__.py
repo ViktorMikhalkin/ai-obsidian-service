@@ -17,13 +17,13 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 # Package version (release-please updates this file during release).
 try:
-    from .__version__ import __version__  # type: ignore
+    from .__version__ import __version__
 except Exception:  # pragma: no cover
     __version__ = "0.0.0"  # fallback if version file is missing during build
 
 # Lightweight re-exports from subpackages. Import only symbols that are cheap and safe.
 try:
-    from .indexer import build_index, get_index_status  # type: ignore  # noqa: F401
+    from .indexer import build_index, get_index_status
 except Exception:
     # Keep the package importable even if optional deps are not installed.
     pass

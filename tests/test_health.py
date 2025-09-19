@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
-from indexer.app import app
+
+from ai_obsidian_service.indexer.app import app
 
 
 def test_health():
