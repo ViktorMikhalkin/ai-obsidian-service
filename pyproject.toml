@@ -3,7 +3,7 @@
 
 [tool.ccpolicy]
 types = ["feat", "fix", "docs", "style", "refactor", "test", "chore", "ci", "build", "perf"]
-scopes = ["index", "parser", "faiss", "rag", "repo", "api", "cli", "ci", "packaging", "docs"]
+scopes = ["index", "parser", "faiss", "rag", "repo", "api", "cli", "ci", "packaging", "docs", "core"]
 enforce_scope = true
 allow_scopeless = false
 header_max_length = 72
@@ -35,6 +35,8 @@ files = ["src/"]
 [tool.ruff]
 target-version = "py312"
 line-length = 88
+
+[tool.ruff.lint]
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -58,6 +60,7 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 python_files = ["test_*.py", "*_test.py"]
 python_functions = ["test_*"]
 python_classes = ["Test*"]
@@ -68,6 +71,6 @@ markers = [
     "unit: marks tests as unit tests",
 ]
 filterwarnings = [
-    "ignore::DeprecationWarning",
+    "error::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
 ]

@@ -10,4 +10,4 @@ def _client():
 
 def ollama_generate(prompt: str, model: str = "qwen2.5:7b-instruct") -> str:
     resp = _client().generate(model=model, prompt=prompt)
-    return resp.get("response", "")
+    return str(resp.get("response", ""))

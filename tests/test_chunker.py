@@ -1,4 +1,4 @@
-from indexer.parsers.chunker import chunk_text
+from ai_obsidian_service.indexer.parsers.chunker import chunk_text
 
 
 def test_chunker_basic():

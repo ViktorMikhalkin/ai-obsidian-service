@@ -57,3 +57,8 @@ dependencies:
       - rank-bm25>=0.2.2
       - ebooklib>=0.18
       - python-frontmatter>=1.0.0
+      # Type stubs for mypy
+      - types-PyYAML
+      - types-requests
+      - types-tqdm
+      - types-aiofiles

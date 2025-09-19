@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
-from indexer.app import app
+
+from ai_obsidian_service.indexer.app import app
 
 
 def _route_exists(path: str, method: str = "GET") -> bool:
