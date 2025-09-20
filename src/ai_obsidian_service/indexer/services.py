@@ -2,6 +2,7 @@ import json
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import yaml
@@ -80,8 +81,6 @@ class IndexerService:
 
         This method bridges between the old metadata format and new domain models.
         """
-        start_time = time.perf_counter()
-
         # Create domain query
         query = Query(text=query_text, top_k=top_k)
 
@@ -91,7 +90,8 @@ class IndexerService:
 
         # If the FAISS index has the new search method, use it
         if hasattr(self.fa, "search") and hasattr(self.fa, "_chunk_metadata"):
-            return self.fa.search(embedded_query)
+            result = self.fa.search(embedded_query)
+            return cast(SearchResult, result)
 
         # Otherwise, use legacy method with metadata conversion
         return self._legacy_search(embedded_query)
@@ -109,21 +109,34 @@ class IndexerService:
         # Convert legacy metadata to domain hits
         hits = []
         for idx, score in zip(indices[0], scores[0], strict=False):
-            if idx < len(self.metas) and idx >= 0:
-                meta = self.metas[idx]
+            # Convert numpy types to Python types explicitly
+            idx_int: int = int(idx.item()) if hasattr(idx, "item") else int(idx)
+            score_float: float = (
+                float(score.item()) if hasattr(score, "item") else float(score)
+            )
+
+            if idx_int < len(self.metas) and idx_int >= 0:
+                meta = self.metas[idx_int]
 
                 # Extract information from legacy metadata
-                doc_id = DocId(meta.get("path", f"doc_{idx}"))
-                chunk_id = ChunkId(f"{doc_id}_chunk_{idx}")
+                doc_id = DocId(meta.get("path", f"doc_{idx_int}"))
+                chunk_id = ChunkId(f"{doc_id}_chunk_{idx_int}")
+
+                # Handle start_char and end_char - convert from potential JSON floats to ints
+                start_char_value = meta.get("start_char", 0)
+                start_char = 0 if start_char_value is None else int(start_char_value)
+
+                end_char_value = meta.get("end_char")
+                end_char = None if end_char_value is None else int(end_char_value)
 
                 hit = Hit(
                     chunk_id=chunk_id,
                     doc_id=doc_id,
-                    chunk_order=idx,  # Use index as order for legacy data
-                    score=float(score),
+                    chunk_order=idx_int,
+                    score=score_float,
                     snippet=self._create_snippet(meta.get("text", "")),
-                    start_char=meta.get("start_char", 0),
-                    end_char=meta.get("end_char"),
+                    start_char=start_char,
+                    end_char=end_char,
                     metadata={
                         "kind": meta.get("kind", ""),
                         "preview": meta.get("preview", ""),
@@ -163,7 +176,7 @@ class IndexerService:
 
             # Get index file size
             idx_path = self.index_dir / "faiss.index"
-            index_size_mb = 0
+            index_size_mb: float = 0.0
             if idx_path.exists():
                 index_size_mb = idx_path.stat().st_size / (1024 * 1024)
 

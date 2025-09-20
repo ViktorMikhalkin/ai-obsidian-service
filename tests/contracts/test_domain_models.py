@@ -15,7 +15,7 @@ def test_document_is_frozen_and_has_fields():
     assert d.id == "doc-1"
     assert d.mime.startswith("text/")
     try:
-        d.path = "/new"  # type: ignore[attr-defined]
+        d.path = "/new"  # type: ignore[misc]
         raise AssertionError("Document must be frozen")
     except FrozenInstanceError:
         pass
@@ -28,7 +28,7 @@ def test_chunk_and_query_are_immutable():
     from dataclasses import FrozenInstanceError
 
     try:
-        q.top_k = 10  # type: ignore[attr-defined]
+        q.top_k = 10  # type: ignore[misc]
         raise AssertionError("Query must be frozen")
     except FrozenInstanceError:
         pass

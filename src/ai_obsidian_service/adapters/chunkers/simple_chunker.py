@@ -1,4 +1,4 @@
-from ai_obsidian_service.core import Chunk, Chunker, DocId, Document
+from ai_obsidian_service.core import Chunk, Chunker, ChunkId, DocId, Document
 
 
 class SimpleChunker(Chunker):
@@ -13,14 +13,18 @@ class SimpleChunker(Chunker):
     def split(self, doc: Document) -> list[Chunk]:
         text = doc.text or ""
         if not text:
-            return [Chunk(doc_id=DocId(doc.id), order=0, text="")]
+            chunk_id = ChunkId(f"{doc.id}_chunk_0")
+            return [Chunk(id=chunk_id, doc_id=DocId(doc.id), order=0, text="")]
         chunks: list[Chunk] = []
         start = 0
         order = 0
         while start < len(text):
             end = min(start + self.max_chars, len(text))
             segment = text[start:end]
-            chunks.append(Chunk(doc_id=DocId(doc.id), order=order, text=segment))
+            chunk_id = ChunkId(f"{doc.id}_chunk_{order}")
+            chunks.append(
+                Chunk(id=chunk_id, doc_id=DocId(doc.id), order=order, text=segment)
+            )
             if end == len(text):
                 break
             # move start forward with overlap

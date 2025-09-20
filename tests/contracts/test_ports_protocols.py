@@ -1,12 +1,15 @@
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 
 from ai_obsidian_service.domain.models import (
     Chunk,
     ChunkId,
     DocId,
     Document,
+    EmbeddedChunk,
+    EmbeddedQuery,
     Hit,
     Query,
+    SearchResult,
 )
 from ai_obsidian_service.ports.interfaces import (
     Chunker,
@@ -37,19 +40,25 @@ class _FakeChunker:
 
 
 class _FakeIndex:
-    def upsert(self, chunks: Iterable[Chunk]) -> None:
-        self._count = getattr(self, "_count", 0) + len(list(chunks))
+    def upsert(self, embedded_chunks: Iterable[EmbeddedChunk]) -> None:
+        self._count = getattr(self, "_count", 0) + len(list(embedded_chunks))
 
-    def search(self, query: Query) -> Sequence[Hit]:
-        return [
+    def search(self, embedded_query: EmbeddedQuery) -> SearchResult:
+        hits = [
             Hit(
-                chunk_id=ChunkId("chunk-1"),  # Add this required field
+                chunk_id=ChunkId("chunk-1"),
                 doc_id=DocId("doc-1"),
                 chunk_order=0,
                 score=0.9,
                 snippet="...",
             )
         ]
+        return SearchResult(
+            query=embedded_query.query,
+            hits=hits,
+            total_time_ms=1.0,
+            retrieved_at="2025-01-01T00:00:00",
+        )
 
 
 class _FakeLlm:
@@ -71,6 +80,21 @@ def test_protocol_assignments_and_isinstance_checks():
 
     doc = p.parse("a.md")
     chunks = c.split(doc)
-    idx.upsert(chunks)
-    hits = idx.search(Query(text="hi", top_k=1))
-    assert hits and hits[0].doc_id
+
+    # Create embedded chunks for the EmbeddingIndex
+    import numpy as np
+
+    embedded_chunks = [
+        EmbeddedChunk(chunk=chunk, embedding=np.array([0.1, 0.2, 0.3]))
+        for chunk in chunks
+    ]
+
+    idx.upsert(embedded_chunks)
+
+    # Create embedded query for the search
+    embedded_query = EmbeddedQuery(
+        query=Query(text="hi", top_k=1), embedding=np.array([0.1, 0.2, 0.3])
+    )
+
+    result = idx.search(embedded_query)
+    assert result.hits and result.hits[0].doc_id
