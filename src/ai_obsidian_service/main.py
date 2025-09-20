@@ -1,96 +1,161 @@
-"""
-Main entry point for AI Obsidian Service.
-Handles dynamic ASGI app resolution and runs the server.
-"""
+from functools import lru_cache
 
-import importlib
-import logging
-import os
-import sys
-from collections.abc import Callable
+from fastapi import Depends, FastAPI, HTTPException
 
-from fastapi import FastAPI
-
-type ASGIApp = FastAPI | Callable[..., object]
+from .indexer.schemas import (
+    AnswerRequest,
+    AnswerResponse,
+    SearchHit,
+    SearchRequest,
+    SearchResponse,
+)
+from .indexer.services import IndexerService
 
 
-class AppNotFoundException(Exception):
-    pass
+@lru_cache(maxsize=1)
+def get_indexer_service():
+    """Get singleton indexer service instance."""
+    return IndexerService()
 
 
-class UvicornNotInstalledException(Exception):
-    pass
+app = FastAPI(
+    title="AI Obsidian Service",
+    description="Semantic search and RAG for Obsidian notes",
+    version="0.1.0",
+)
 
 
-def setup_logging():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-    )
+@app.get("/health")
+async def health():
+    """Health check endpoint."""
+    return {"ok": True, "errors": []}
 
 
-def resolve_app(candidates: list[str] | None = None) -> ASGIApp:
-    """
-    Resolve and import the ASGI application from a list of candidates.
-    """
-    if candidates is None:
-        spec = os.getenv("APP_MODULE")
-        candidates = [spec] if spec else []
-        candidates += [
-            "ai_obsidian_service.indexer.app:app",
-            "ai_obsidian_service.app:app",
-            "ai_obsidian_service.api.app:app",
-            "ai_obsidian_service.service.app:app",
-            "ai_obsidian_service.server:app",
-            "ai_obsidian_service.application:app",
-        ]
-    for cand in candidates:
-        try:
-            mod_name, _, attr = cand.partition(":")
-            mod = importlib.import_module(mod_name)
-            obj = getattr(mod, attr or "app", None)
-            if callable(obj):
-                logging.info(f"ASGI app found: {cand}")
-                return obj
-        except Exception as e:
-            logging.debug(f"Failed to import {cand}: {e}")
-    raise AppNotFoundException("No valid ASGI app found in candidates.")
-
-
-def run_app(app: ASGIApp):
-    """
-    Run the ASGI app using uvicorn.
-    """
+@app.post("/search", response_model=SearchResponse)
+async def search(
+    request: SearchRequest,
+    service: IndexerService = Depends(get_indexer_service),
+):
+    """Search for similar content using semantic similarity."""
     try:
-        import uvicorn
-    except ImportError as e:
-        raise UvicornNotInstalledException(
-            "Install uvicorn to run the ASGI app."
+        # Use the new enhanced search method
+        search_result = service.search_text(request.query, request.top_k)
+
+        # Convert domain hits to API response
+        api_hits = []
+        for hit in search_result.hits:
+            api_hit = SearchHit(
+                id=f"{hit.doc_id}-{hit.chunk_order}",
+                path=str(hit.doc_id),
+                kind="chunk",
+                preview=hit.snippet,
+                score=hit.score,
+                start_char=hit.start_char,
+                end_char=hit.end_char,
+                metadata=hit.metadata,
+            )
+            api_hits.append(api_hit)
+
+        return SearchResponse(
+            results=api_hits,
+            total_time_ms=search_result.total_time_ms,
+            retrieved_at=search_result.retrieved_at,
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}") from e
+
+
+@app.post("/answer", response_model=AnswerResponse)
+async def answer(
+    request: AnswerRequest,
+    service: IndexerService = Depends(get_indexer_service),
+):
+    """Generate answers based on retrieved context."""
+    try:
+        # Step 1: Perform semantic search
+        search_result = service.search_text(request.query, request.top_k)
+
+        # Convert hits to API format for sources
+        sources = []
+        context_chunks = []
+
+        for hit in search_result.hits:
+            source = SearchHit(
+                id=f"{hit.doc_id}-{hit.chunk_order}",
+                path=str(hit.doc_id),
+                kind="chunk",
+                preview=hit.snippet,
+                score=hit.score,
+                start_char=hit.start_char,
+                end_char=hit.end_char,
+                metadata=hit.metadata,
+            )
+            sources.append(source)
+
+            # Collect full text for context (use snippet for now)
+            context_chunks.append(hit.snippet)
+
+        # Step 2: Generate answer
+        answer_text = ""
+        if context_chunks:
+            if hasattr(service, "llm_client") and service.llm_client:
+                # Use LLM for generative answer
+                context = "\n\n".join(context_chunks)
+                prompt = f"""Based on the following context, answer the question: {request.query}
+
+Context:
+{context}
+
+Answer:"""
+                answer_text = service.llm_client.generate(prompt)
+            else:
+                # Fallback to extractive answer
+                answer_text = context_chunks[0][: request.max_tokens]
+        else:
+            answer_text = "No relevant information found."
+
+        return AnswerResponse(
+            query=request.query,
+            answer=answer_text,
+            sources=sources,
+            total_time_ms=search_result.total_time_ms,
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Answer generation error: {str(e)}"
         ) from e
-    host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "8000"))
-    logging.info(f"Starting server at http://{host}:{port}")
-    uvicorn.run(app, host=host, port=port)
 
 
-def main() -> int:
-    setup_logging()
+@app.get("/index/stats")
+async def get_index_stats(service: IndexerService = Depends(get_indexer_service)):
+    """Get index statistics."""
     try:
-        app = resolve_app()
-        run_app(app)
-        return 0
-    except AppNotFoundException as e:
-        logging.error(str(e))
-        print("AI Obsidian Service started (no ASGI app found).")
-        return 1
-    except UvicornNotInstalledException as e:
-        logging.error(str(e))
-        print(str(e), file=sys.stderr)
-        return 2
-    except Exception:
-        logging.exception("Unexpected error starting the service.")
-        return 3
+        stats = service.get_stats()
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Stats error: {str(e)}") from e
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+@app.post("/index/rebuild")
+async def rebuild_index(service: IndexerService = Depends(get_indexer_service)):
+    """Rebuild the search index."""
+    try:
+        result = service.rebuild_index()
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Index rebuild error: {str(e)}"
+        ) from e
+
+
+# Error handlers
+@app.exception_handler(404)
+async def not_found_handler(request, exc):
+    return {"error": "Endpoint not found", "detail": str(exc)}
+
+
+@app.exception_handler(500)
+async def internal_error_handler(request, exc):
+    return {"error": "Internal server error", "detail": str(exc)}
