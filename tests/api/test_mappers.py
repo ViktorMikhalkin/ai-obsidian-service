@@ -1,46 +1,77 @@
-# tests/api/test_mappers.py
-from __future__ import annotations
+from ai_obsidian_service.api.mappers import (
+    answer_to_answer_response,
+    hit_to_search_hit,
+    hits_to_search_response,
+)
+from ai_obsidian_service.domain.models import ChunkId, DocId, Hit, Query
+from ai_obsidian_service.indexer.schemas import SearchHit
 
-import pytest
 
-from ai_obsidian_service.api.mappers import hits_to_search_response
-from ai_obsidian_service.domain.models import Chunk, ChunkId, DocId, Hit, Query
+def _resolve3(doc_id: DocId, chunk_id: ChunkId, order: int):
+    return {
+        "path": f"/docs/{doc_id}.md",
+        "kind": "md",
+        "preview": f"chunk-{order}",
+        "score": 0.42,
+    }
 
 
-def test_hits_to_search_response_maps_fields():
-    ch = Chunk(
-        id="c1",
-        doc_id="d1",
-        order=0,
-        text="hello",
-        metadata={"path": "notes/a.md", "collection": "notes"},
-    )
-    hit = Hit(
+def _resolve2(doc_id: DocId, order: int):
+    # legacy signature support
+    return {
+        "path": f"/legacy/{doc_id}.md",
+        "kind": "md",
+        "preview": f"legacy-{order}",
+    }
+
+
+def test_hit_to_search_hit_basic():
+    h = Hit(
         doc_id=DocId("d1"),
-        chunk_id=ChunkId("c1"),
+        chunk_id=ChunkId("d1#2"),
+        chunk_order=2,
+        score=0.8,
+        snippet="...",
+    )
+    dto = hit_to_search_hit(h, _resolve3)
+    assert dto.path.endswith("/docs/d1.md")
+    assert dto.kind == "md"
+    assert dto.score == 0.8
+    assert "chunk-2" in dto.preview
+
+
+def test_hit_to_search_hit_legacy_resolver():
+    h = Hit(
+        doc_id=DocId("d2"),
+        chunk_id=ChunkId("d2#0"),
         chunk_order=0,
-        score=0.9,
-        snippet="hello",
-        chunk=ch,
+        score=0.5,
+        snippet="s",
     )
+    dto = hit_to_search_hit(h, _resolve2)
+    assert dto.path.endswith("/legacy/d2.md")
+    assert "legacy-0" in dto.preview
 
-    # resolve_meta returns path — mapper will fill it into the DTO
-    res = hits_to_search_response(
-        Query("hello", top_k=1),
-        [hit],
-        lambda chunk_id: {"path": "notes/a.md"},
-    )
 
-    assert res.query == "hello"
-    assert res.top_k == 1
-    assert len(res.hits) == 1
+def test_hits_to_search_response_list():
+    q = Query(text="hello", top_k=2)
+    hits = [
+        Hit(
+            doc_id=DocId("d1"),
+            chunk_id=ChunkId("d1#0"),
+            chunk_order=0,
+            score=0.5,
+            snippet="s",
+        )
+    ]
+    resp = hits_to_search_response(q, hits, _resolve3)
+    assert len(resp.results) == 1
+    assert resp.results[0].path.endswith("/docs/d1.md")
 
-    h = res.hits[0]
-    payload = (
-        h.model_dump()
-        if hasattr(h, "model_dump")
-        else (h if isinstance(h, dict) else h.__dict__)
-    )
-    assert payload.get("id") == "c1"
-    assert payload.get("path") == "notes/a.md"
-    assert pytest.approx(payload.get("score", 0.0), rel=1e-6) == 0.9
+
+def test_answer_to_answer_response():
+    sources: list[SearchHit] = []
+    resp = answer_to_answer_response("q", "a", sources)
+    assert resp.query == "q"
+    assert resp.answer == "a"
+    assert isinstance(resp.sources, list)
