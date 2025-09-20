@@ -99,7 +99,11 @@ async def answer(
         # Step 2: Generate answer
         answer_text = ""
         if context_chunks:
-            if hasattr(service, "llm_client") and service.llm_client:
+            if (
+                hasattr(service, "llm_client")
+                and service.llm_client
+                and hasattr(service.llm_client, "generate")
+            ):
                 # Use LLM for generative answer
                 context = "\n\n".join(context_chunks)
                 prompt = f"""Based on the following context, answer the question: {request.query}

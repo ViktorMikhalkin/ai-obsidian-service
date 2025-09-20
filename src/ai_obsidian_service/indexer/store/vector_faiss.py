@@ -185,4 +185,4 @@ class FaissIndex:
     @property
     def size(self) -> int:
         """Number of vectors in the index."""
-        return self.index.ntotal
+        return int(self.index.ntotal)

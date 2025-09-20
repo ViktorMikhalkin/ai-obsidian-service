@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import time
+from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime
+from typing import TYPE_CHECKING
 
-try:
+if TYPE_CHECKING:
     import numpy as np
-except Exception:  # pragma: no cover
-    np = None  # type: ignore
+else:
+    try:
+        import numpy as np
+    except Exception:  # pragma: no cover
+        np = None  # type: ignore[misc]
 
-from ai_obsidian_service.core import Chunk, ChunkId, DocId, EmbeddingIndex, Hit, Query
+from ai_obsidian_service.core import ChunkId, DocId, EmbeddingIndex, Hit
+from ai_obsidian_service.domain.models import EmbeddedChunk, EmbeddedQuery, SearchResult
 
 
 def _ensure_np():
@@ -46,45 +54,82 @@ class FaissIndex(EmbeddingIndex):
 
     def __init__(self, index_dir: str | None = None, dim: int = 64) -> None:
         self.dim = dim
-        self._vectors = []  # list[np.ndarray]
+        self._vectors: list[np.ndarray] = []
         self._meta: list[_Meta] = []
 
-    def upsert(self, chunks: list[Chunk]) -> None:
-        if not chunks:
+    def upsert(self, embedded_chunks: Iterable[EmbeddedChunk]) -> None:
+        chunks_list = list(embedded_chunks)
+        if not chunks_list:
             return
         _ensure_np()
-        for c in chunks:
-            v = _embed_text(c.text, self.dim)
+
+        for ec in chunks_list:
+            chunk = ec.chunk
+            # Use the provided embedding or fall back to our simple embedding
+            if hasattr(ec, "embedding") and ec.embedding is not None:
+                v = ec.embedding
+            else:
+                v = _embed_text(chunk.text, self.dim)
+
             self._vectors.append(v)
-            chunk_id = f"{c.doc_id}#{c.order}"
+            chunk_id = f"{chunk.doc_id}#{chunk.order}"
             self._meta.append(
                 _Meta(
-                    doc_id=str(c.doc_id), chunk_id=chunk_id, order=c.order, text=c.text
+                    doc_id=str(chunk.doc_id),
+                    chunk_id=chunk_id,
+                    order=chunk.order,
+                    text=chunk.text,
                 )
             )
 
-    def search(self, query: Query) -> list[Hit]:
+    def search(self, embedded_query: EmbeddedQuery) -> SearchResult:
+        start_time = time.perf_counter()
+
         if not self._vectors:
-            return []
+            return SearchResult(
+                query=embedded_query.query,
+                hits=[],
+                total_time_ms=0.0,
+                retrieved_at=datetime.now().isoformat(),
+            )
+
         _ensure_np()
-        q = _embed_text(query.text, self.dim)
+
+        # Use the provided query embedding or fall back to our simple embedding
+        if (
+            hasattr(embedded_query, "embedding")
+            and embedded_query.embedding is not None
+        ):
+            q = embedded_query.embedding
+        else:
+            q = _embed_text(embedded_query.query.text, self.dim)
+
         sims = []
         for idx, v in enumerate(self._vectors):
             score = float((q * v).sum())
             sims.append((score, idx))
         sims.sort(reverse=True, key=lambda x: x[0])
-        top = sims[: max(1, int(query.top_k))]
+        top = sims[: max(1, int(embedded_query.query.top_k))]
+
         hits: list[Hit] = []
         for score, i in top:
             m = self._meta[i]
             preview = m.text[:240] if m.text else ""
             hits.append(
                 Hit(
-                    doc_id=DocId(m.doc_id),
                     chunk_id=ChunkId(m.chunk_id),
+                    doc_id=DocId(m.doc_id),
                     chunk_order=m.order,
                     score=score if score > 0 else 0.0,
                     snippet=preview,
                 )
             )
-        return hits
+
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+
+        return SearchResult(
+            query=embedded_query.query,
+            hits=hits,
+            total_time_ms=elapsed_ms,
+            retrieved_at=datetime.now().isoformat(),
+        )

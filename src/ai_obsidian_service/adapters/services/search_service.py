@@ -12,17 +12,26 @@ from ai_obsidian_service.core import (
     Hit,
     Query,
 )
+from ai_obsidian_service.domain.models import (
+    EmbeddedChunk,
+    EmbeddedQuery,
+)
 
 
 class SearchService:
     """Orchestrates parsing → chunking → indexing and search over EmbeddingIndex."""
 
     def __init__(
-        self, parsers: list[DocumentParser], chunker: Chunker, index: EmbeddingIndex
+        self,
+        parsers: list[DocumentParser],
+        chunker: Chunker,
+        index: EmbeddingIndex,
+        embedder,  # Type will be inferred - embedder with embed_text/embed_chunks methods
     ) -> None:
         self.parsers = list(parsers)
         self.chunker = chunker
         self.index = index
+        self.embedder = embedder
         # local metadata cache for resolve_meta; key = (doc_id, order)
         self._meta: dict[tuple[str, int], dict[str, Any]] = {}
 
@@ -35,7 +44,14 @@ class SearchService:
                 "kind": doc.mime or "chunk",
                 "preview": ch.text[:240] if ch.text else "",
             }
-        self.index.upsert(chunks)
+
+        # Convert chunks to embedded chunks
+        embedded_chunks = []
+        for chunk in chunks:
+            embedding = self.embedder.embed_text(chunk.text)
+            embedded_chunks.append(EmbeddedChunk(chunk=chunk, embedding=embedding))
+
+        self.index.upsert(embedded_chunks)
         return len(chunks)
 
     def index_path(self, path: str) -> int:
@@ -46,7 +62,12 @@ class SearchService:
         raise ValueError(f"No parser available for: {path}")
 
     def search_text(self, text: str, top_k: int = 5) -> list[Hit]:
-        return self.index.search(Query(text=text, top_k=top_k))
+        query = Query(text=text, top_k=top_k)
+        query_embedding = self.embedder.embed_text(text)
+        embedded_query = EmbeddedQuery(query=query, embedding=query_embedding)
+
+        result = self.index.search(embedded_query)
+        return result.hits
 
     def resolve_meta(
         self, doc_id: DocId, chunk_id: ChunkId, order: int
