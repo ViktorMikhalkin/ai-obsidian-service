@@ -20,8 +20,10 @@ def test_index_stats():
         assert r.status_code == 200
         data = r.json()
         assert isinstance(data, dict)
-        assert "exists" in data
-        assert "index_path" in data
+        assert "total_chunks" in data
+        assert "total_documents" in data
+        assert "index_size_mb" in data  # New field
+        assert "last_updated" in data  # New field
 
 
 def test_index_rebuild_start():
@@ -32,5 +34,5 @@ def test_index_rebuild_start():
         assert r.status_code == 200
         data = r.json()
         assert isinstance(data, dict)
-        assert data.get("status") == "started"
-        assert "pid" in data
+        assert data.get("message") == "Index rebuild completed"
+        assert "stats" in data

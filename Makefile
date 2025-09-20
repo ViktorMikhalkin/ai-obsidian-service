@@ -8,7 +8,10 @@ PY     ?= 3.12
 CONDA  ?= $(shell command -v mamba >/dev/null 2>&1 && echo mamba || echo conda)
 
 .PHONY: env-cpu env-gpu setup-cpu setup-gpu install reinstall install-test-deps \
-	  pre-commit help
+	pre-commit help build test test-coverage test-integration test-all-envs \
+	lint lint-fix format format-check typecheck quality quality-all-envs \
+	dev-gpu dev-cpu dev-both check-cuda check-faiss check-gpu clean clean-env \
+	env-from-yml env-from-lock info quickstart-cpu quickstart-gpu serve status
 
 # Default target
 help:
@@ -153,6 +156,17 @@ typecheck:
 	@echo "Running mypy type checker..."
 	$(CONDA) run -n $(ENV) mypy src/
 
+# --- Quality meta-target ---
+quality:
+	@echo "Running all quality checks..."
+	@$(MAKE) lint
+	@$(MAKE) typecheck
+	@$(MAKE) test
+
+pre-commit:
+	@echo "Running pre-commit checks..."
+	$(CONDA) run -n $(ENV) pre-commit run --all-files
+
 # --- Cross-environment testing ---
 test-all-envs:
 	@echo "Testing both GPU and CPU environments..."
@@ -186,91 +200,4 @@ quality-all-envs:
 
 # --- Environment-specific development ---
 dev-gpu:
-	@echo "Setting up GPU development environment..."
-	@$(MAKE) setup-gpu ENV=aiobs-gpu
-	@$(MAKE) check-gpu ENV=aiobs-gpu
-	@echo "Ready for GPU development! Use: ENV=aiobs-gpu make <command>"
-
-dev-cpu:
-	@echo "Setting up CPU development environment..."
-	@$(MAKE) setup-cpu ENV=aiobs-cpu
-	@echo "Ready for CPU development! Use: ENV=aiobs-cpu make <command>"
-
-dev-both:
-	@echo "Setting up both development environments..."
-	@$(MAKE) dev-gpu
-	@$(MAKE) dev-cpu
-	@echo "Both environments ready!"
-
-# --- Check CUDA/PyTorch setup ---
-check-cuda:
-	@echo "Checking CUDA/PyTorch setup..."
-	@$(CONDA) run -n $(ENV) python -c "import torch; \
-print('torch:', torch.__version__); \
-print('cuda_available:', torch.cuda.is_available()); \
-print('device_count:', torch.cuda.device_count()); \
-print('cuda_version:', getattr(__import__('torch').version, 'cuda', None)); \
-print('device_name[0]:', __import__('torch').cuda.get_device_name(0) if __import__('torch').cuda.is_available() else 'N/A')" || \
-	(echo "❌ CUDA check failed!"; exit 1)
-	@echo "✅ CUDA setup OK!"
-
-# --- Check faiss-gpu setup ---
-check-faiss:
-	@echo "Checking faiss-gpu setup..."
-	@$(CONDA) run -n $(ENV) python -c "import faiss; \
-print('faiss-gpu available:', hasattr(faiss, 'StandardGpuResources')); \
-res = faiss.StandardGpuResources() if hasattr(faiss, 'StandardGpuResources') else None; \
-print('GPU resources initialized successfully' if res else 'GPU resources not available')" || \
-	(echo "❌ faiss-gpu check failed!"; exit 1)
-	@echo "✅ faiss-gpu setup OK!"
-
-# --- Complete GPU environment verification ---
-check-gpu: check-cuda check-faiss
-	@echo "✅ All GPU components verified!"
-
-# --- Remove local index ---
-clean:
-	@echo "Cleaning local index..."
-	rm -rf .index/
-
-# --- Clean environment ---
-clean-env:
-	@echo "Removing conda environment: $(ENV)"
-	$(CONDA) env remove -n $(ENV) -y || true
-
-# --- Environment management from YAML/lock ---
-env-from-yml:
-	@if [ "$(ENV)" = "aiobs-gpu" ] || [[ "$(ENV)" == *-gpu ]]; then \
-		echo "Creating GPU environment from YAML..."; \
-		$(CONDA) env create -f environment.gpu.yml -n $(ENV) || \
-		$(CONDA) env update -f environment.gpu.yml -n $(ENV); \
-	else \
-		echo "Creating CPU environment from YAML..."; \
-		$(CONDA) env create -f environment.yml -n $(ENV) || \
-		$(CONDA) env update -f environment.yml -n $(ENV); \
-	fi
-	$(CONDA) run -n $(ENV) conda config --env --set channel_priority strict
-
-env-from-lock:
-	@echo "Installing from conda-lock..."
-	conda-lock install --name $(ENV)
-
-# --- Environment information ---
-info:
-	@echo "Environment: $(ENV)"
-	@echo "Python version: $(PY)"
-	@echo "Conda command: $(CONDA)"
-	@$(CONDA) run -n $(ENV) conda list | head -20 || echo "Environment $(ENV) not found"
-
-# --- Quick start options ---
-quickstart-cpu:
-	@echo "🚀 Quick start with CPU environment..."
-	@$(MAKE) setup-cpu
-	@$(MAKE) build-test
-	@echo "✅ Ready! Run 'make serve' to start the service"
-
-quickstart-gpu:
-	@echo "🚀 Quick start with GPU environment..."
-	@$(MAKE) setup-gpu
-	@$(MAKE) build-test
-	@echo "✅ Ready! Run 'make serve' to start the service"
+	@echo
