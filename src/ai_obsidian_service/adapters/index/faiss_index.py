@@ -13,22 +13,31 @@ from ai_obsidian_service.core import (
 )
 from ai_obsidian_service.domain.models import EmbeddedChunk, EmbeddedQuery
 
-# Optional NumPy — safe for mypy
-np: Any = None
-try:  # pragma: no cover
-    import numpy
 
-    np = numpy
-except ImportError:  # pragma: no cover
-    pass
+def _py_dot(a: list[float] | Any, b: list[float] | Any) -> float:
+    """Pure-Python dot product as a fallback when NumPy is unavailable."""
+    try:
+        return float(sum((float(x) * float(y) for x, y in zip(a, b, strict=False))))
+    except Exception:
+        return 0.0
 
 
 def _has_numpy() -> bool:
-    """Check if numpy is available."""
-    return np is not None
+    try:
+        import numpy as _np  # noqa: F401
+
+        return True
+    except Exception:
+        return False
 
 
-@dataclass(frozen=True)
+if _has_numpy():
+    import numpy as np  # type: ignore[no-redef]
+else:
+    np = None  # type: ignore[assignment]
+
+
+@dataclass(frozen=True, slots=True)
 class _Meta:
     doc_id: str
     chunk_id: str
@@ -50,14 +59,17 @@ class FaissIndex(EmbeddingIndex):
     def upsert(self, chunks: Iterable[EmbeddedChunk]) -> None:
         for ec in chunks:
             v = ec.embedding
-            # No shape checks here; assume caller provides correct vectors
-            self._vectors.append(v)
+            if _has_numpy():
+                self._vectors.append(v)
+            else:
+                # store as plain list of floats
+                self._vectors.append([float(x) for x in v])
             self._meta.append(
                 _Meta(
                     doc_id=str(ec.chunk.doc_id),
                     chunk_id=str(ec.chunk.id),
-                    order=ec.chunk.order,
-                    text=ec.chunk.text or "",
+                    order=int(ec.chunk.order),
+                    text=str(ec.chunk.text or ""),
                 )
             )
 
@@ -75,10 +87,8 @@ class FaissIndex(EmbeddingIndex):
                 if _has_numpy():
                     score = float(np.dot(q, v))
                 else:
-                    # fallback for numpy-less scenario; rely on duck-typing
-                    score = 0.0
+                    score = _py_dot(q, v)
             except Exception:
-                # fallback for numpy-less scenario; rely on duck-typing
                 score = 0.0
             sims.append((score, idx))
 
@@ -87,9 +97,9 @@ class FaissIndex(EmbeddingIndex):
         top = sims[:top_k]
 
         hits: list[Hit] = []
-        for score, i in top:
-            meta = self._meta[i]
-            preview = meta.text[:240] if meta.text else ""
+        for score, idx in top:
+            meta = self._meta[idx]
+            preview = meta.text[:240]
             hits.append(
                 Hit(
                     doc_id=DocId(meta.doc_id),
