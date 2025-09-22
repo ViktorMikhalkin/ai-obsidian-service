@@ -147,8 +147,11 @@ def test_search_error_handling():
             r = client.post("/search", json={"query": "test", "top_k": 1})
             assert r.status_code == 500
             body = r.json()
-            assert "detail" in body
-            assert "Service unavailable" in body["detail"]
+            assert (
+                all(k in body for k in ("code", "message", "requestId"))
+                and "detail" not in body
+            )
+            assert "Service unavailable" in body["message"]
 
     finally:
         app.dependency_overrides.clear()
