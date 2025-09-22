@@ -1,12 +1,9 @@
-import mimetypes
 from pathlib import Path
-
-from ai_obsidian_service.core import DocId, Document, DocumentParser
-
+import mimetypes
+from ai_obsidian_service.core import DocumentParser, Document, DocId
 
 class MarkdownParser(DocumentParser):
-    """Markdown file parser (strategy). Lightweight and side-effect free."""
-
+    """Markdown file parser (strategy)."""
     def can_parse(self, path: str) -> bool:
         return Path(path).suffix.lower() in {".md", ".markdown"}
 

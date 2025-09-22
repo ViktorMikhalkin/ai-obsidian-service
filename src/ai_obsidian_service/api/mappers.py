@@ -1,20 +1,9 @@
-"""
-Mapping utilities: domain → API DTO (Pydantic schemas).
-Keeps domain models clean and decouples transports from core logic.
-"""
-
 from __future__ import annotations
-
 from collections.abc import Callable
 from typing import TypedDict
 
-from ai_obsidian_service.domain.models import ChunkId, DocId, Hit, Query
-from ai_obsidian_service.indexer.schemas import (
-    AnswerResponse,
-    SearchHit,
-    SearchResponse,
-)
-
+from ai_obsidian_service.core import DocId, ChunkId, Hit, Query
+from .schemas import SearchHit, SearchResponse, AnswerResponse
 
 class ResolveMeta(TypedDict, total=False):
     path: str
@@ -23,50 +12,33 @@ class ResolveMeta(TypedDict, total=False):
     text: str
     score: float
 
-
-# Prefer a resolver that accepts (doc_id, chunk_id, chunk_order).
-# For backward-compat, we also support (doc_id, chunk_order).
 ResolveFn = Callable[..., ResolveMeta]
 
-
-def _call_resolve(
-    resolve: ResolveFn, doc_id: DocId, chunk_id: ChunkId, order: int
-) -> ResolveMeta:
-    # Try modern signature first
+def _call_resolve(resolve: ResolveFn, doc_id: DocId, chunk_id: ChunkId, order: int) -> ResolveMeta:
     try:
         return resolve(doc_id, chunk_id, order)
     except TypeError:
-        # Fallback to legacy (doc_id, order)
         try:
             return resolve(doc_id, order)
         except TypeError:
-            # Last resort: call with just doc_id
             return resolve(doc_id)
-
 
 def hit_to_search_hit(hit: Hit, resolve: ResolveFn) -> SearchHit:
     meta = _call_resolve(resolve, hit.doc_id, hit.chunk_id, hit.chunk_order) or {}
     path = meta.get("path", "")
     kind = meta.get("kind", "chunk")
     preview = meta.get("preview") or meta.get("text", "")
-    preview = (preview or "")[:240]  # guard overly long previews
-    # IMPORTANT: DTO requires string id; use chunk_id (domain-level stable id)
+    preview = (preview or "")[:240]
     return SearchHit(
-        id=str(hit.chunk_id),
+        id=str(hit.chunk_id),  # DTO id must be string
         path=path,
         kind=kind,
         preview=preview,
         score=float(hit.score),
     )
 
-
-def hits_to_search_response(
-    query: Query, hits: list[Hit], resolve: ResolveFn
-) -> SearchResponse:
+def hits_to_search_response(query: Query, hits: list[Hit], resolve: ResolveFn) -> SearchResponse:
     return SearchResponse(results=[hit_to_search_hit(h, resolve) for h in hits])
 
-
-def answer_to_answer_response(
-    query_text: str, answer_text: str, sources: list[SearchHit]
-) -> AnswerResponse:
+def answer_to_answer_response(query_text: str, answer_text: str, sources: list[SearchHit]) -> AnswerResponse:
     return AnswerResponse(query=query_text, answer=answer_text, sources=sources)
