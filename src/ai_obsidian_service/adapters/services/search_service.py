@@ -1,39 +1,15 @@
 from __future__ import annotations
-
-from typing import Any
-
-from ai_obsidian_service.core import (
-    Chunker,
-    ChunkId,
-    DocId,
-    Document,
-    DocumentParser,
-    EmbeddingIndex,
-    Hit,
-    Query,
-)
-from ai_obsidian_service.domain.models import (
-    EmbeddedChunk,
-    EmbeddedQuery,
-)
-
+from typing import List, Dict, Any
+from ai_obsidian_service.core import DocumentParser, Chunker, EmbeddingIndex, Document, Query, Hit, DocId, ChunkId
 
 class SearchService:
     """Orchestrates parsing → chunking → indexing and search over EmbeddingIndex."""
-
-    def __init__(
-        self,
-        parsers: list[DocumentParser],
-        chunker: Chunker,
-        index: EmbeddingIndex,
-        embedder,  # Type will be inferred - embedder with embed_text/embed_chunks methods
-    ) -> None:
+    def __init__(self, parsers: List[DocumentParser], chunker: Chunker, index: EmbeddingIndex) -> None:
         self.parsers = list(parsers)
         self.chunker = chunker
         self.index = index
-        self.embedder = embedder
         # local metadata cache for resolve_meta; key = (doc_id, order)
-        self._meta: dict[tuple[str, int], dict[str, Any]] = {}
+        self._meta: Dict[tuple[str, int], Dict[str, Any]] = {}
 
     def index_document(self, doc: Document) -> int:
         chunks = self.chunker.split(doc)
@@ -42,16 +18,9 @@ class SearchService:
             self._meta[key] = {
                 "path": doc.path,
                 "kind": doc.mime or "chunk",
-                "preview": ch.text[:240] if ch.text else "",
+                "preview": ch.text[:240] if ch.text else ""
             }
-
-        # Convert chunks to embedded chunks
-        embedded_chunks = []
-        for chunk in chunks:
-            embedding = self.embedder.embed_text(chunk.text)
-            embedded_chunks.append(EmbeddedChunk(chunk=chunk, embedding=embedding))
-
-        self.index.upsert(embedded_chunks)
+        self.index.upsert(chunks)
         return len(chunks)
 
     def index_path(self, path: str) -> int:
@@ -61,16 +30,9 @@ class SearchService:
                 return self.index_document(doc)
         raise ValueError(f"No parser available for: {path}")
 
-    def search_text(self, text: str, top_k: int = 5) -> list[Hit]:
-        query = Query(text=text, top_k=top_k)
-        query_embedding = self.embedder.embed_text(text)
-        embedded_query = EmbeddedQuery(query=query, embedding=query_embedding)
+    def search_text(self, text: str, top_k: int = 5) -> List[Hit]:
+        return self.index.search(Query(text=text, top_k=top_k))
 
-        result = self.index.search(embedded_query)
-        return result.hits
-
-    def resolve_meta(
-        self, doc_id: DocId, chunk_id: ChunkId, order: int
-    ) -> dict[str, Any]:
+    def resolve_meta(self, doc_id: DocId, chunk_id: ChunkId, order: int) -> Dict[str, Any]:
         key = (str(doc_id), int(order))
         return dict(self._meta.get(key, {}))
