@@ -36,3 +36,7 @@ class SimpleChunker(Chunker):
             start = next_start if next_start > start else end
             order += 1
         return chunks
+
+def chunk_text(text: str, max_chars: int = 1000) -> list[str]:
+    """Shortcut compatible with legacy tests."""
+    return SimpleChunker(max_chars=max_chars).chunk(text)
