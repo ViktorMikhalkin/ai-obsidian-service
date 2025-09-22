@@ -9,9 +9,9 @@ import typer as _typer
 import yaml
 
 from ai_obsidian_service.indexer.embedder import Embedder
-from ai_obsidian_service.indexer.parsers.chunker import chunk_text
+from ai_obsidian_service.adapters.chunkers import chunk_text
 from ai_obsidian_service.indexer.parsers.epub_parser import iter_epub_docs
-from ai_obsidian_service.indexer.parsers.md_parser import parse_markdown
+from ai_obsidian_service.adapters.parsers.md_parser import parse_markdown
 from ai_obsidian_service.indexer.parsers.pdf_parser import extract_pdf_per_pages
 from ai_obsidian_service.indexer.store.vector_faiss import FaissIndex
 

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ai_obsidian_service.indexer.parsers.md_parser import parse_markdown
+from ai_obsidian_service.adapters.parsers.md_parser import parse_markdown
 
 
 def test_md_parser(tmp_path: Path):
