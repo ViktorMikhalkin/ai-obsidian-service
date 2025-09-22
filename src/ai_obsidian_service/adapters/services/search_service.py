@@ -1,19 +1,20 @@
 from __future__ import annotations
 
-from typing import List, Dict, Tuple, Any, cast
+from typing import Any, cast
 
 from ai_obsidian_service.core import (
-    DocumentParser,
-    Chunker,
-    EmbeddingIndex,
-    Document,
     Chunk,
-    Query,
-    Hit,
-    DocId,
+    Chunker,
     ChunkId,
+    DocId,
+    Document,
+    DocumentParser,
+    EmbeddingIndex,
+    Hit,
+    Query,
 )
 from ai_obsidian_service.domain.models import EmbeddedChunk, EmbeddedQuery
+
 
 def _embed_text(text: str, dim: int = 64):
     """Deterministic lightweight embedding (works with or without NumPy)."""
@@ -34,12 +35,13 @@ def _embed_text(text: str, dim: int = 64):
         n = float(np.linalg.norm(v))
         return v / n if n > 0 else v
 
+
 class SearchService:
     """Orchestrates parsing → chunking → indexing and search over EmbeddingIndex."""
 
     def __init__(
         self,
-        parsers: List[DocumentParser],
+        parsers: list[DocumentParser],
         chunker: Chunker,
         index: EmbeddingIndex,
     ) -> None:
@@ -47,17 +49,25 @@ class SearchService:
         self.chunker = chunker
         self.index = index
         # meta by (doc_id, chunk_order)
-        self._meta: Dict[Tuple[str, int], Dict[str, Any]] = {}
+        self._meta: dict[tuple[str, int], dict[str, Any]] = {}
 
     # ---------- Indexing ----------
 
     def index_document(self, doc: Document) -> int:
-        """Index a parsed document and return number of chunks stored."""
+        """Index a parsed document and return number of chunks stored.
+
+        Prefers the protocol method names:
+        - Chunker.split(doc)
+        Fallbacks preserved for older implementations:
+        - .chunk(doc), .chunk_document(doc)
+        """
         ck: Any = cast(Any, self.chunker)
-        chunks: List[Chunk]
-        if hasattr(ck, "chunk") and callable(getattr(ck, "chunk")):
+        chunks: list[Chunk]
+        if hasattr(ck, "split") and callable(ck.split):
+            chunks = ck.split(doc)
+        elif hasattr(ck, "chunk") and callable(ck.chunk):
             chunks = ck.chunk(doc)
-        elif hasattr(ck, "chunk_document") and callable(getattr(ck, "chunk_document")):
+        elif hasattr(ck, "chunk_document") and callable(ck.chunk_document):
             chunks = ck.chunk_document(doc)
         else:
             # Fallback: single full-text chunk
@@ -72,8 +82,8 @@ class SearchService:
                 )
             ]
 
-        dim = getattr(self.index, 'dim', 64)
-        embedded: List[EmbeddedChunk] = [
+        dim = getattr(self.index, "dim", 64)
+        embedded: list[EmbeddedChunk] = [
             EmbeddedChunk(chunk=c, embedding=_embed_text(c.text, dim)) for c in chunks
         ]
         # store meta for resolve
@@ -89,10 +99,20 @@ class SearchService:
         return len(chunks)
 
     def index_path(self, path: str) -> int:
-        """Parse and index a single path; return number of chunks stored."""
+        """Parse and index a single path; return number of chunks stored.
+
+        Prefers the protocol method names:
+        - DocumentParser.can_parse(path)
+        Fallback preserved:
+        - .accepts(path)
+        """
         for p in self.parsers:
             pp: Any = cast(Any, p)
+            can_parse = getattr(pp, "can_parse", None)
             accepts = getattr(pp, "accepts", None)
+            if callable(can_parse) and can_parse(path):
+                doc: Document = pp.parse(path)
+                return self.index_document(doc)
             if callable(accepts) and accepts(path):
                 doc: Document = pp.parse(path)
                 return self.index_document(doc)
@@ -101,15 +121,19 @@ class SearchService:
 
     # ---------- Search ----------
 
-    def search_text(self, text: str, top_k: int = 5) -> List[Hit]:
-        dim = getattr(self.index, 'dim', 64)
-        eq = EmbeddedQuery(query=Query(text=text, top_k=top_k), embedding=_embed_text(text, dim))
+    def search_text(self, text: str, top_k: int = 5) -> list[Hit]:
+        dim = getattr(self.index, "dim", 64)
+        eq = EmbeddedQuery(
+            query=Query(text=text, top_k=top_k), embedding=_embed_text(text, dim)
+        )
         result = self.index.search(eq)
         return result.hits
 
     # ---------- Resolve ----------
 
-    def resolve_meta(self, doc_id: DocId, chunk_id: ChunkId, order: int) -> Dict[str, Any]:
+    def resolve_meta(
+        self, doc_id: DocId, chunk_id: ChunkId, order: int
+    ) -> dict[str, Any]:
         key = (str(doc_id), int(order))
         return dict(self._meta.get(key, {}))
 

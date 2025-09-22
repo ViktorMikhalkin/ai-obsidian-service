@@ -3,182 +3,132 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections.abc import Callable
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.requests import Request
-from starlette.responses import Response
-from starlette.types import ASGIApp
+from starlette.middleware.base import BaseHTTPMiddleware
 
-from ai_obsidian_service.logging_utils import get_request_id, set_request_id
-
-# ------------------------ Middlewares ------------------------
-
-
-class RequestIdMiddleware(BaseHTTPMiddleware):
-    """
-    Ensures every request has a requestId:
-      - reads from X-Request-Id header if present,
-      - otherwise generates UUID4,
-      - stores in contextvar (logging_utils) and adds to response.
-    """
-
-    def __init__(self, app: ASGIApp, header_name: str = "X-Request-Id") -> None:
-        super().__init__(app)
-        self.header_name = header_name
-
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
-        rid = request.headers.get(self.header_name) or str(uuid.uuid4())
-        # ContextVar is task-scoped; manual cleanup not required
-        set_request_id(rid)
-        response = await call_next(request)
-        response.headers.setdefault(self.header_name, rid)
-        return response
+__all__ = [
+    "install_error_handlers",
+    "ensure_request_id_middleware",
+    "install_access_logger",
+    "status_code_to_code",
+]
 
 
-class AccessLogMiddleware(BaseHTTPMiddleware):
-    """
-    Compact access log in JSON format (logger: "aiobs"), including requestId.
-    """
-
-    def __init__(self, app: ASGIApp, logger_name: str = "aiobs") -> None:
-        super().__init__(app)
-        self._log = logging.getLogger(logger_name)
-
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
-        t0 = time.perf_counter()
-        try:
-            response = await call_next(request)
-        except Exception:
-            duration_ms = (time.perf_counter() - t0) * 1000.0
-            extra = {
-                "status_code": 500,
-                "path": request.url.path,
-                "method": request.method,
-                "duration_ms": round(duration_ms, 3),
-                "client": request.client.host if request.client else None,
-                "user_agent": request.headers.get("user-agent"),
-                "requestId": get_request_id(),
-            }
-            self._log.exception("access", extra=extra)
-            raise
-
-        duration_ms = (time.perf_counter() - t0) * 1000.0
-        extra = {
-            "status_code": response.status_code,
-            "path": request.url.path,
-            "method": request.method,
-            "duration_ms": round(duration_ms, 3),
-            "client": request.client.host if request.client else None,
-            "user_agent": request.headers.get("user-agent"),
-            "requestId": get_request_id(),
-        }
-        self._log.info("access", extra=extra)
-        return response
-
-
-# ------------------------ Unified error schema ------------------------
-
-
-def _code_name(status_code: int) -> str:
+def status_code_to_code(status_code: int) -> str:
     mapping = {
         400: "bad_request",
-        401: "unauthorized",
+        401: "unauthenticated",
         403: "forbidden",
         404: "not_found",
         409: "conflict",
         422: "validation_error",
-        429: "too_many_requests",
+        429: "rate_limited",
         500: "internal_error",
-        503: "service_unavailable",
     }
     return mapping.get(status_code, f"http_{status_code}")
 
 
-async def http_exception_handler(_request: Request, exc: Exception) -> Response:
-    """
-    Unified HTTP error handling: always return {code:str, message:str, requestId:str|None}.
-    Function signature compatible with FastAPI/mypy (accepts Exception).
-    """
-    if isinstance(exc, StarletteHTTPException):
-        payload = {
-            "code": _code_name(exc.status_code),
-            "message": exc.detail if isinstance(exc.detail, str) else "HTTP error",
-            "requestId": get_request_id(),
-        }
-        return JSONResponse(status_code=exc.status_code, content=payload)
-
-    # Just in case (though this would be caught by unhandled handler)
-    payload = {
-        "code": "internal_error",
-        "message": "Internal server error",
-        "requestId": get_request_id(),
-    }
-    return JSONResponse(status_code=500, content=payload)
+class _RequestIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: Callable):
+        rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+        request.state.request_id = rid
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = rid
+        return response
 
 
-async def unhandled_exception_handler(request: Request, exc: Exception) -> Response:
-    """
-    Catch unexpected exceptions: don't expose internals to the outside.
-    """
-    logging.getLogger("aiobs").exception(
-        "unhandled_error",
-        extra={"path": request.url.path, "requestId": get_request_id()},
-    )
-    payload = {
-        "code": "internal_error",
-        "message": "Internal server error",
-        "requestId": get_request_id(),
-    }
-    return JSONResponse(status_code=500, content=payload)
+class _AccessLogMiddleware(BaseHTTPMiddleware):
+    def __init__(
+        self, app: FastAPI, logger_name: str = "ai_obsidian_service.api.access"
+    ):
+        super().__init__(app)
+        self._logger = logging.getLogger(logger_name)
 
-
-# ------------------------ Wiring helpers ------------------------
+    async def dispatch(self, request: Request, call_next: Callable):
+        start = time.perf_counter()
+        rid = (
+            getattr(getattr(request, "state", object()), "request_id", None)
+            or request.headers.get("X-Request-ID")
+            or "-"
+        )
+        method = request.method
+        path = request.url.path
+        try:
+            response = await call_next(request)
+            status = response.status_code
+            return response
+        finally:
+            dur_ms = (time.perf_counter() - start) * 1000.0
+            extra = {
+                "requestId": rid,
+                "method": method,
+                "path": path,
+                "duration_ms": round(dur_ms, 3),
+                "status": locals().get("status", 0),
+            }
+            self._logger.info("access", extra=extra)
 
 
 def ensure_request_id_middleware(app: FastAPI) -> None:
-    """Connect middleware for requestId setup."""
-    app.add_middleware(RequestIdMiddleware)
+    for m in app.user_middleware:
+        if getattr(m, "cls", None) is _RequestIdMiddleware:
+            break
+    else:
+        app.add_middleware(_RequestIdMiddleware)
 
 
 def install_access_logger(app: FastAPI) -> None:
-    """Connect middleware for access logging."""
-    app.add_middleware(AccessLogMiddleware, logger_name="aiobs")
+    for m in app.user_middleware:
+        if getattr(m, "cls", None) is _AccessLogMiddleware:
+            break
+    else:
+        app.add_middleware(_AccessLogMiddleware)
+
+
+def _rid(request: Request) -> str:
+    rid = getattr(getattr(request, "state", object()), "request_id", None)
+    if rid:
+        return str(rid)
+    return request.headers.get("X-Request-ID") or uuid.uuid4().hex
 
 
 def install_error_handlers(app: FastAPI) -> None:
-    """Connect error handlers with unified schema."""
-
-    @app.exception_handler(RequestValidationError)
-    async def _on_validation_error(
-        _request: Request, _exc: RequestValidationError
-    ) -> Response:
+    @app.exception_handler(HTTPException)
+    async def _http_exc_handler(request: Request, exc: HTTPException):
+        rid = _rid(request)
+        payload = {
+            "code": status_code_to_code(exc.status_code),
+            "message": str(exc.detail) if exc.detail else "HTTP error",
+            "requestId": rid,
+        }
         return JSONResponse(
-            status_code=422,
-            content={
-                "code": "validation_error",
-                "message": "Request validation failed",
-                "requestId": get_request_id(),
-            },
+            status_code=exc.status_code, content=payload, headers={"X-Request-ID": rid}
         )
 
-    # Important: register by StarletteHTTPException type,
-    # while the handler function signature is (Request, Exception), see above.
-    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
-    app.add_exception_handler(Exception, unhandled_exception_handler)
+    @app.exception_handler(RequestValidationError)
+    async def _validation_handler(request: Request, exc: RequestValidationError):
+        rid = _rid(request)
+        payload = {
+            "code": "validation_error",
+            "message": "Validation failed",
+            "requestId": rid,
+        }
+        return JSONResponse(
+            status_code=422, content=payload, headers={"X-Request-ID": rid}
+        )
 
-
-def install(app: FastAPI) -> None:
-    """
-    Entry point: order matters — requestId first, then access log, then error handlers.
-    """
-    ensure_request_id_middleware(app)
-    install_access_logger(app)
-    install_error_handlers(app)
+    @app.exception_handler(Exception)
+    async def _unhandled_handler(request: Request, exc: Exception):
+        rid = _rid(request)
+        payload = {
+            "code": "internal_error",
+            "message": "Internal Server Error",
+            "requestId": rid,
+        }
+        return JSONResponse(
+            status_code=500, content=payload, headers={"X-Request-ID": rid}
+        )
