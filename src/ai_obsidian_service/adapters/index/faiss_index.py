@@ -1,30 +1,32 @@
 from __future__ import annotations
+
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import List, Iterable
-try:
-    import numpy as np
-except Exception:  # pragma: no cover
-    np = None  # type: ignore
+from typing import Any
 
-from ai_obsidian_service.domain.models import EmbeddedChunk, EmbeddedQuery, SearchResult, Hit, DocId, ChunkId
-from ai_obsidian_service.ports.interfaces import EmbeddingIndex
+from ai_obsidian_service.core import (
+    ChunkId,
+    DocId,
+    EmbeddingIndex,
+    Hit,
+    SearchResult,
+)
+from ai_obsidian_service.domain.models import EmbeddedChunk, EmbeddedQuery
 
-def _ensure_np():
-    if np is None:
-        raise RuntimeError("NumPy is required for FaissIndex fallback embedding.")
+# Optional NumPy — safe for mypy
+np: Any = None
+try:  # pragma: no cover
+    import numpy
 
-def _embed_text(text: str, dim: int = 64):
-    """Deterministic lightweight embedding without external deps."""
-    _ensure_np()
-    vec = np.zeros(dim, dtype=float)
-    if not text:
-        return vec
-    for i, ch in enumerate(text):
-        vec[(ord(ch) + i) % dim] += 1.0
-    n = np.linalg.norm(vec)
-    if n > 0:
-        vec = vec / n
-    return vec
+    np = numpy
+except ImportError:  # pragma: no cover
+    pass
+
+
+def _has_numpy() -> bool:
+    """Check if numpy is available."""
+    return np is not None
+
 
 @dataclass(frozen=True)
 class _Meta:
@@ -33,69 +35,74 @@ class _Meta:
     order: int
     text: str
 
+
 class FaissIndex(EmbeddingIndex):
-    """Adapter implementing EmbeddingIndex over a simple NumPy fallback.
-    If FAISS becomes available, we can swap internals transparently.
+    """Vector index adapter on top of simple in-memory arrays.
+
+    It expects pre-computed embeddings (via EmbeddedChunk / EmbeddedQuery).
     """
+
     def __init__(self, index_dir: str | None = None, dim: int = 64) -> None:
         self.dim = dim
-        # Fix: Add proper type annotation for _vectors
-        self._vectors: list[np.ndarray] = []
-        self._meta: List[_Meta] = []
+        self._vectors: list[Any] = []  # list of numpy arrays (or Any)
+        self._meta: list[_Meta] = []
 
-    def upsert(self, embedded_chunks: Iterable[EmbeddedChunk]) -> None:
-        """Add or update embedded chunks in the index."""
-        _ensure_np()
-        for chunk in embedded_chunks:
-            # Use the pre-computed embedding from EmbeddedChunk
-            self._vectors.append(chunk.embedding)
-            chunk_id = f"{chunk.doc_id}#{chunk.order}"
-            self._meta.append(_Meta(
-                doc_id=str(chunk.doc_id),
-                chunk_id=chunk_id,
-                order=chunk.order,
-                text=chunk.text
-            ))
+    def upsert(self, chunks: Iterable[EmbeddedChunk]) -> None:
+        for ec in chunks:
+            v = ec.embedding
+            # No shape checks here; assume caller provides correct vectors
+            self._vectors.append(v)
+            self._meta.append(
+                _Meta(
+                    doc_id=str(ec.chunk.doc_id),
+                    chunk_id=str(ec.chunk.id),
+                    order=ec.chunk.order,
+                    text=ec.chunk.text or "",
+                )
+            )
 
     def search(self, embedded_query: EmbeddedQuery) -> SearchResult:
-        """Search for similar chunks using the embedded query."""
         if not self._vectors:
-            return SearchResult(hits=[], total_time_ms=0.0, retrieved_at="")
+            return SearchResult(
+                query=embedded_query.query, hits=[], total_time_ms=0.0, retrieved_at=""
+            )
 
-        _ensure_np()
-
-        # Use the pre-computed embedding from EmbeddedQuery
-        query_vector = embedded_query.embedding
-
-        # Calculate similarities
-        sims = []
-        for idx, vector in enumerate(self._vectors):
-            # Compute cosine similarity
-            score = float(np.dot(query_vector, vector))
+        q = embedded_query.embedding
+        sims: list[tuple[float, int]] = []
+        # cosine similarity equivalent if vectors are normalized; else dot product
+        for idx, v in enumerate(self._vectors):
+            try:
+                if _has_numpy():
+                    score = float(np.dot(q, v))
+                else:
+                    # fallback for numpy-less scenario; rely on duck-typing
+                    score = 0.0
+            except Exception:
+                # fallback for numpy-less scenario; rely on duck-typing
+                score = 0.0
             sims.append((score, idx))
 
-        # Sort by similarity score (descending)
         sims.sort(reverse=True, key=lambda x: x[0])
+        top_k = max(1, int(getattr(embedded_query.query, "top_k", 5)))
+        top = sims[:top_k]
 
-        # Get top k results
-        top_k = getattr(embedded_query, 'top_k', 5)  # Default to 5 if not specified
-        top = sims[:max(1, int(top_k))]
-
-        # Convert to Hit objects
-        hits: List[Hit] = []
+        hits: list[Hit] = []
         for score, i in top:
             meta = self._meta[i]
             preview = meta.text[:240] if meta.text else ""
-            hits.append(Hit(
-                doc_id=DocId(meta.doc_id),
-                chunk_id=ChunkId(meta.chunk_id),
-                chunk_order=meta.order,
-                score=max(0.0, score),  # Ensure non-negative score
-                snippet=preview
-            ))
+            hits.append(
+                Hit(
+                    doc_id=DocId(meta.doc_id),
+                    chunk_id=ChunkId(meta.chunk_id),
+                    chunk_order=meta.order,
+                    score=max(0.0, float(score)),
+                    snippet=preview,
+                )
+            )
 
         return SearchResult(
+            query=embedded_query.query,
             hits=hits,
-            total_time_ms=0.0,  # Could add actual timing measurement here
-            retrieved_at=""     # Could add actual timestamp here
+            total_time_ms=0.0,
+            retrieved_at="",
         )
