@@ -1,4 +1,9 @@
 from ai_obsidian_service.api.schemas import (
-    SearchRequest, SearchHit, SearchResponse, AnswerRequest, AnswerResponse
+    AnswerRequest,
+    AnswerResponse,
+    SearchHit,
+    SearchRequest,
+    SearchResponse,
 )
+
 __all__ = ["SearchRequest", "SearchHit", "SearchResponse", "AnswerRequest", "AnswerResponse"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
+
 from pydantic import BaseModel, Field
-from typing import List
+
 
 class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1)
@@ -14,7 +15,7 @@ class SearchHit(BaseModel):
     score: float = 0.0
 
 class SearchResponse(BaseModel):
-    results: List[SearchHit] = []
+    results: list[SearchHit] = []
 
 class AnswerRequest(BaseModel):
     query: str
@@ -23,4 +24,4 @@ class AnswerRequest(BaseModel):
 class AnswerResponse(BaseModel):
     query: str
     answer: str
-    sources: List[SearchHit] = []
+    sources: list[SearchHit] = []

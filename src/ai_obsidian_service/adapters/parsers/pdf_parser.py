@@ -1,6 +1,8 @@
-from pathlib import Path
 import mimetypes
-from ai_obsidian_service.core import DocumentParser, Document, DocId
+from pathlib import Path
+
+from ai_obsidian_service.core import DocId, Document, DocumentParser
+
 
 class PdfParser(DocumentParser):
     """PDF parser (lightweight placeholder without external deps)."""

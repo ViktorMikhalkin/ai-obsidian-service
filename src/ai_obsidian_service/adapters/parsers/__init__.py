@@ -1,67 +1,28 @@
 from __future__ import annotations
-from typing import Type, List, Protocol, runtime_checkable
 
-# Architectural note:
-# All formats are equal. No "default vs non-default" distinction.
-# We use a unified registry of parser classes and build_parsers() factory.
-# Selection is based only on backend availability (available()), not on "status".
-#
-# For backward compatibility we export default_parsers = build_parsers().
+# Single source of truth for ports/protocols:
+from ai_obsidian_service.core import DocumentParser  # re-export from ports.interfaces
 
-@runtime_checkable
-class DocumentParser(Protocol):
-    def accepts(self, path: str) -> bool: ...
-    def parse(self, text: str): ...
-    def parse_file(self, path: str): ...
+from .epub_parser import EpubParser
 
-# Import parser classes (each parser knows about its own availability)
-from .md_parser import MarkdownParser  # always available
+# Import concrete parser implementations
+from .md_parser import MarkdownParser
+from .pdf_parser import PdfParser
 
-try:
-    from .pdf_parser import PdfParser
-except Exception:  # pragma: no cover - import is optional
-    PdfParser = None  # type: ignore[assignment]
+_REGISTRY: list[type[DocumentParser]] = [MarkdownParser, PdfParser, EpubParser]
 
-try:
-    from .epub_parser import EpubParser
-except Exception:  # pragma: no cover - import is optional
-    EpubParser = None  # type: ignore[assignment]
+def register_parser(cls: type[DocumentParser]) -> None:
+    if cls not in _REGISTRY:
+        _REGISTRY.append(cls)
 
-# Unified registry of parser classes (all equal)
-PARSER_CLASSES: list[type] = [MarkdownParser]
+def build_parsers() -> list[DocumentParser]:
+    # Instantiate all registered parsers; "available" gating can be added per class later
+    return [cls() for cls in _REGISTRY]
 
-if PdfParser is not None:
-    PARSER_CLASSES.append(PdfParser)  # type: ignore[arg-type]
-
-if EpubParser is not None:
-    PARSER_CLASSES.append(EpubParser)  # type: ignore[arg-type]
-
-def register_parser(cls: type) -> None:
-    """Register a new parser class (plugin-like model)."""
-    if cls not in PARSER_CLASSES:
-        PARSER_CLASSES.append(cls)
-
-def build_parsers(*, require_available: bool = True) -> List[DocumentParser]:
-    """Instantiate all registered parsers.
-    If the class has a classmethod available() -> bool, and require_available=True,
-    we create an instance only when it's actually available (dependencies installed).
-    Otherwise - create without checking.
-    """
-    instances: list[DocumentParser] = []
-    for cls in PARSER_CLASSES:
-        try:
-            if require_available and hasattr(cls, "available"):
-                if not bool(getattr(cls, "available")()):  # type: ignore[misc]
-                    continue
-            instances.append(cls())  # type: ignore[call-arg, misc]
-        except Exception:
-            # don't block building other parsers
-            continue
-    return instances
-
-# Back-compat export: historically code pulled default_parsers.
-# Now it's just "parsers = build_parsers()".
-default_parsers = build_parsers()
+# Back-compat export: historically code pulled default_parsers as a value.
+# Keep callable semantic: default_parsers() -> list[DocumentParser]
+def default_parsers() -> list[DocumentParser]:
+    return build_parsers()
 
 __all__ = [
     "DocumentParser",

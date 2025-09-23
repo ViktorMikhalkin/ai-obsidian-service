@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Optional, Sequence
 
 try:
     from pydantic_settings import BaseSettings
@@ -12,7 +11,7 @@ class AppSettings(BaseSettings):
     app_name: str = "AI Obsidian Service"
 
     # Index / storage
-    index_dir: Optional[str] = None
+    index_dir: str | None = None
 
     # Logging
     json_logs_enabled: bool = True

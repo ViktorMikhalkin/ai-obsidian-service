@@ -13,7 +13,7 @@ def test_validation_error_schema():
         res = client.post("/search", json={})  # invalid body
         assert res.status_code == 422
         body = res.json()
-        assert set(("code", "message", "requestId")).issubset(body.keys())
+        assert {"code", "message", "requestId"}.issubset(body.keys())
         assert body["code"] == "validation_error"
         assert "X-Request-ID" in res.headers
 
@@ -36,7 +36,7 @@ def test_http_exception_mapped(monkeypatch):
         res = client.post("/search", json={"query": "q", "top_k": 1})
         assert res.status_code == 503
         body = res.json()
-        assert set(("code", "message", "requestId")).issubset(body.keys())
+        assert {"code", "message", "requestId"}.issubset(body.keys())
         assert body["code"] in ("http_503", "service_unavailable")
         assert body["message"] == "Service unavailable"
 
@@ -61,7 +61,7 @@ def test_unhandled_exception_is_internal_error(monkeypatch):
         res = client.post("/search", json={"query": "q", "top_k": 1})
         assert res.status_code == 500
         body = res.json()
-        assert set(("code", "message", "requestId")).issubset(body.keys())
+        assert {"code", "message", "requestId"}.issubset(body.keys())
         assert body["code"] == "internal_error"
 
     app.dependency_overrides.pop(api_app_module.get_search_service, None)
