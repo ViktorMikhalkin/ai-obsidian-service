@@ -1,8 +1,15 @@
 from __future__ import annotations
+
 import logging
+
 from fastapi.testclient import TestClient
 
-from ai_obsidian_service.logging_utils import JsonFormatter, install_json_logging, install_request_id_filter
+from ai_obsidian_service.logging_utils import (
+    JsonFormatter,
+    install_json_logging,
+    install_request_id_filter,
+)
+
 
 def test_uvicorn_loggers_have_json_formatter():
     install_json_logging(logger_names=["uvicorn.error", "uvicorn.access"])

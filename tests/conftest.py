@@ -26,7 +26,7 @@ _INDEX_DIR.mkdir(parents=True, exist_ok=True)
 (_WORK_ROOT / "config.yaml").write_text(
     (
         "{"
-        f'"index_dir": "{str(_INDEX_DIR).replace("\\", "\\\\")}",'
+        f'"index_dir": "{_INDEX_DIR.as_posix()}",'
         '"vault_path": "",'
         '"library_paths": [],'
         '"include_globs": ["**/*.md","**/*.pdf","**/*.epub"],'
@@ -37,8 +37,8 @@ _INDEX_DIR.mkdir(parents=True, exist_ok=True)
         '"device": "cpu",'
         '"batch_size": 8,'
         '"faiss": {'
-        f'"index_path": "{str((_INDEX_DIR / "faiss.index")).replace("\\", "\\\\")}",'
-        f'"dim_path": "{str((_INDEX_DIR / "dim.txt")).replace("\\", "\\\\")}"'
+        f'"index_path": "{(_INDEX_DIR / "faiss.index").as_posix()}",'
+        f'"dim_path": "{(_INDEX_DIR / "dim.txt").as_posix()}"'
         "}"
         "}"
         "}"

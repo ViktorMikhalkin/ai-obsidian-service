@@ -1,42 +1,33 @@
-from ai_obsidian_service.core import Chunk, Chunker, ChunkId, DocId, Document
+from __future__ import annotations
 
+from collections.abc import Sequence
+from ai_obsidian_service.core import Chunk, ChunkId, Chunker, DocId, Document
+
+def chunk_text(text: str, max_chars: int = 1000, overlap: int = 100) -> list[str]:
+    res: list[str] = []
+    n = len(text)
+    step = max(max_chars - overlap, 1)
+    i = 0
+    while i < n:
+        res.append(text[i : i + max_chars])
+        i += step
+    return res
 
 class SimpleChunker(Chunker):
-    """Character-based chunker with optional overlap."""
-
-    def __init__(self, max_chars: int = 1000, overlap: int = 100) -> None:
-        assert max_chars > 0, "max_chars must be positive"
-        assert overlap >= 0, "overlap must be non-negative"
+    def __init__(self, *, max_chars: int = 1000, overlap: int = 100) -> None:
         self.max_chars = max_chars
         self.overlap = overlap
 
-    def split(self, doc: Document) -> list[Chunk]:
-        text = doc.text or ""
-        if not text:
-            return [
-                Chunk(id=ChunkId(f"{doc.id}#0"), doc_id=DocId(doc.id), order=0, text="")
-            ]
+    def split(self, doc: Document) -> Sequence[Chunk]:
+        pieces: list[str] = chunk_text(doc.text or "", self.max_chars, self.overlap)
         chunks: list[Chunk] = []
-        start = 0
-        order = 0
-        while start < len(text):
-            end = min(start + self.max_chars, len(text))
-            segment = text[start:end]
+        for idx, t in enumerate(pieces):
             chunks.append(
                 Chunk(
-                    id=ChunkId(f"{doc.id}#{order}"),
+                    id=ChunkId(f"{doc.id}::{idx}"),
                     doc_id=DocId(doc.id),
-                    order=order,
-                    text=segment,
+                    order=idx,
+                    text=t,
                 )
             )
-            if end == len(text):
-                break
-            next_start = end - self.overlap
-            start = next_start if next_start > start else end
-            order += 1
         return chunks
-
-def chunk_text(text: str, max_chars: int = 1000) -> list[str]:
-    """Shortcut compatible with legacy tests."""
-    return SimpleChunker(max_chars=max_chars).chunk(text)

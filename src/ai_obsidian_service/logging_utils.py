@@ -1,10 +1,12 @@
 from __future__ import annotations
+
+import contextvars
+import datetime
+import json
 import logging
 import sys
-import json
-import datetime
-from typing import Any, Optional, Sequence
-import contextvars
+from collections.abc import Sequence
+from typing import Any
 
 __all__ = [
     "JsonFormatter",
@@ -17,15 +19,15 @@ __all__ = [
 ]
 
 # ContextVar for MDC-like request id propagation
-_request_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("request_id", default=None)
+_request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("request_id", default=None)
 
-def set_request_id(rid: Optional[str]) -> None:
+def set_request_id(rid: str | None) -> None:
     _request_id_var.set(rid)
 
 def clear_request_id() -> None:
     _request_id_var.set(None)
 
-def get_request_id() -> Optional[str]:
+def get_request_id() -> str | None:
     return _request_id_var.get()
 
 _BASE_FIELDS = {
@@ -86,11 +88,11 @@ class RequestIdFilter(logging.Filter):
         if not hasattr(record, "requestId"):
             rid = get_request_id()
             if rid is not None:
-                setattr(record, "requestId", rid)
+                record.requestId = rid
         return True
 
 def install_json_logging(
-    *, level: int = logging.INFO, logger_names: Optional[Sequence[str]] = None, include_uvicorn: bool = True
+    *, level: int = logging.INFO, logger_names: Sequence[str] | None = None, include_uvicorn: bool = True
 ) -> None:
     """Install a JSON StreamHandler on selected loggers (and uvicorn.* when enabled)."""
     handler = logging.StreamHandler(stream=sys.stdout)
@@ -115,7 +117,7 @@ def install_json_logging(
             root.addHandler(handler)
         root.setLevel(level)
 
-def install_request_id_filter(logger_names: Optional[Sequence[str]] = None) -> None:
+def install_request_id_filter(logger_names: Sequence[str] | None = None) -> None:
     """Attach RequestIdFilter to selected loggers and root so every record gets requestId if available."""
     filt = RequestIdFilter()
     if logger_names:

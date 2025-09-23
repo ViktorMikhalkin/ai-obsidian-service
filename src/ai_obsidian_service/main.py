@@ -1,20 +1,25 @@
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
-from typing import Callable, cast
+from collections.abc import Callable
 from contextlib import asynccontextmanager
+from functools import lru_cache
+from typing import cast
 
-from fastapi import FastAPI, Depends, Request, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 
+from .api.errors import (
+    ensure_request_id_middleware,
+    install_access_logger,
+    install_error_handlers,
+)
+from .api.mappers import ResolveMeta, hit_to_search_hit, hits_to_search_response
+from .api.schemas import AnswerRequest, AnswerResponse, SearchRequest, SearchResponse
 from .config.container import build_search_service
-from .indexer.services import IndexerService  # alias of SearchService
-from .api.schemas import SearchRequest, SearchResponse, AnswerRequest, AnswerResponse
-from .api.mappers import hits_to_search_response, hit_to_search_hit, ResolveMeta
-from .api.errors import install_error_handlers, ensure_request_id_middleware, install_access_logger
-from .core import Query
-from .logging_utils import configure_logging
 from .config.settings import get_settings
+from .core import Query
+from .indexer.services import IndexerService  # alias of SearchService
+from .logging_utils import configure_logging
 
 settings = get_settings()
 

@@ -1,6 +1,6 @@
+from ai_obsidian_service.adapters.chunkers import chunk_text
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
 from ai_obsidian_service.core import DocId, Document
-from ai_obsidian_service.adapters.chunkers import chunk_text
 
 
 def test_simple_chunker_splits_text():

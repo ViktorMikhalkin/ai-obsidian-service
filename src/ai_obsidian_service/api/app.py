@@ -1,21 +1,27 @@
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
-from typing import Callable, cast
+from collections.abc import Callable
 from contextlib import asynccontextmanager
+from functools import lru_cache
+from typing import cast
 
-from fastapi import FastAPI, Depends, Request, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 
 from ai_obsidian_service import __version__
-from ai_obsidian_service.config.container import build_search_service
 from ai_obsidian_service.adapters.services.search_service import SearchService
-from ai_obsidian_service.core import Query
-from .schemas import SearchRequest, SearchResponse, AnswerRequest, AnswerResponse
-from .mappers import hits_to_search_response, hit_to_search_hit, ResolveMeta
-from .errors import install_error_handlers, ensure_request_id_middleware, install_access_logger
-from ai_obsidian_service.logging_utils import configure_logging
+from ai_obsidian_service.config.container import build_search_service
 from ai_obsidian_service.config.settings import get_settings
+from ai_obsidian_service.core import Query
+from ai_obsidian_service.logging_utils import configure_logging
+
+from .errors import (
+    ensure_request_id_middleware,
+    install_access_logger,
+    install_error_handlers,
+)
+from .mappers import ResolveMeta, hit_to_search_hit, hits_to_search_response
+from .schemas import AnswerRequest, AnswerResponse, SearchRequest, SearchResponse
 
 settings = get_settings()
 

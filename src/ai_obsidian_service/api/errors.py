@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import logging
 import time
 import uuid
-import logging
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from ai_obsidian_service.logging_utils import set_request_id, clear_request_id, get_request_id
+from ai_obsidian_service.logging_utils import (
+    clear_request_id,
+    get_request_id,
+    set_request_id,
+)
 
 __all__ = [
     "install_error_handlers",
@@ -44,7 +48,7 @@ class _RequestIdMiddleware(BaseHTTPMiddleware):
         finally:
             clear_request_id()
 
-def _content_length(response) -> Optional[int]:
+def _content_length(response) -> int | None:
     try:
         h = response.headers.get("content-length")
         if h is not None:
