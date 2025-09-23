@@ -3,133 +3,134 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from collections.abc import Callable
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.responses import JSONResponse, Response
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.types import ASGIApp
 
-from ai_obsidian_service.logging_utils import (
-    clear_request_id,
-    get_request_id,
-    set_request_id,
-)
+from ai_obsidian_service.logging_utils import get_request_id, set_request_id
 
-__all__ = [
-    "install_error_handlers",
-    "ensure_request_id_middleware",
-    "install_access_logger",
-    "status_code_to_code",
-]
 
-def status_code_to_code(status_code: int) -> str:
-    mapping = {
-        400: "bad_request",
-        401: "unauthenticated",
-        403: "forbidden",
-        404: "not_found",
-        409: "conflict",
-        422: "validation_error",
-        429: "rate_limited",
-        500: "internal_error",
-    }
-    return mapping.get(status_code, f"http_{status_code}")
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """
+    Ensure every request has a requestId:
+      - read from X-Request-Id if provided,
+      - otherwise generate a UUID4,
+      - expose it via logging_utils contextvar and add response header.
+    """
 
-class _RequestIdMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: Callable):
-        rid = request.headers.get("X-Request-ID") or uuid.uuid4().hex
-        request.state.request_id = rid
-        set_request_id(rid)
-        try:
-            response = await call_next(request)
-            response.headers["X-Request-ID"] = rid
-            return response
-        finally:
-            clear_request_id()
-
-def _content_length(response) -> int | None:
-    try:
-        h = response.headers.get("content-length")
-        if h is not None:
-            return int(h)
-    except Exception:
-        return None
-    size = None
-    body = getattr(response, "body", None)
-    if isinstance(body, (bytes, bytearray)):
-        size = len(body)
-    elif isinstance(body, str):
-        size = len(body.encode("utf-8", "ignore"))
-    return size
-
-class _AccessLogMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, logger_name: str = "ai_obsidian_service.api.access"):
+    def __init__(self, app: ASGIApp, header_name: str = "X-Request-Id") -> None:
         super().__init__(app)
-        self._logger = logging.getLogger(logger_name)
+        self.header_name = header_name
 
-    async def dispatch(self, request: Request, call_next: Callable):
-        start = time.perf_counter()
-        rid = get_request_id() or request.headers.get("X-Request-ID") or "-"
-        method = request.method
-        path = request.url.path
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        rid = request.headers.get(self.header_name) or str(uuid.uuid4())
+        # Note: we purposefully do NOT clear the contextvar here after the call.
+        # ContextVars are request-task scoped; leaving it set avoids order issues
+        # with other middlewares (e.g., access logging) and wonâ€™t leak across requests.
+        set_request_id(rid)
+        response = await call_next(request)
+        response.headers.setdefault(self.header_name, rid)
+        return response
+
+
+class AccessLogMiddleware(BaseHTTPMiddleware):
+    """
+    Compact, JSON-friendly access log that includes requestId.
+    """
+
+    def __init__(self, app: ASGIApp, logger_name: str = "aiobs") -> None:
+        super().__init__(app)
+        self._log = logging.getLogger(logger_name)
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        t0 = time.perf_counter()
         try:
             response = await call_next(request)
-            status = response.status_code
-            size = _content_length(response)
-            return response
-        finally:
-            dur_ms = (time.perf_counter() - start) * 1000.0
+        except Exception:
+            duration_ms = (time.perf_counter() - t0) * 1000.0
             extra = {
-                "requestId": rid,
-                "method": method,
-                "path": path,
-                "duration_ms": round(dur_ms, 3),
-                "status": locals().get("status", 0),
-                "size_bytes": locals().get("size", None),
+                "status_code": 500,
+                "path": request.url.path,
+                "method": request.method,
+                "duration_ms": round(duration_ms, 3),
+                "client": request.client.host if request.client else None,
+                "user_agent": request.headers.get("user-agent"),
+                "requestId": get_request_id(),
             }
-            self._logger.info("access", extra=extra)
+            self._log.exception("access", extra=extra)
+            raise
+
+        duration_ms = (time.perf_counter() - t0) * 1000.0
+        extra = {
+            "status_code": response.status_code,
+            "path": request.url.path,
+            "method": request.method,
+            "duration_ms": round(duration_ms, 3),
+            "client": request.client.host if request.client else None,
+            "user_agent": request.headers.get("user-agent"),
+            "requestId": get_request_id(),  # LogRecord has this attribute (tests expect it)
+        }
+        self._log.info("access", extra=extra)
+        return response
+
+
+async def http_exception_handler(_request: Request, exc: Exception) -> Response:
+    """Handle HTTP exceptions with proper typing for FastAPI."""
+    if isinstance(exc, HTTPException):
+        payload = {
+            "code": exc.status_code,
+            "message": exc.detail,
+            "requestId": get_request_id(),
+        }
+        return JSONResponse(status_code=exc.status_code, content=payload)
+    else:
+        # Fallback for non-HTTP exceptions
+        payload = {
+            "code": 500,
+            "message": "Internal Server Error",
+            "requestId": get_request_id(),
+        }
+        return JSONResponse(status_code=500, content=payload)
+
+
+async def unhandled_exception_handler(request: Request, exc: Exception) -> Response:
+    """Handle unhandled exceptions with proper typing for FastAPI."""
+    logging.getLogger("aiobs").exception(
+        "unhandled_error",
+        extra={"path": request.url.path, "requestId": get_request_id()},
+    )
+    payload = {
+        "code": 500,
+        "message": "Internal Server Error",
+        "requestId": get_request_id(),
+    }
+    return JSONResponse(status_code=500, content=payload)
+
 
 def ensure_request_id_middleware(app: FastAPI) -> None:
-    for m in app.user_middleware:
-        if getattr(m, "cls", None) is _RequestIdMiddleware:
-            break
-    else:
-        app.add_middleware(_RequestIdMiddleware)
+    """Add RequestIdMiddleware to the app."""
+    app.add_middleware(RequestIdMiddleware)
 
-def install_access_logger(app: FastAPI, logger_name: str = "ai_obsidian_service.api.access") -> None:
-    for m in app.user_middleware:
-        if getattr(m, "cls", None) is _AccessLogMiddleware:
-            break
-    else:
-        # Fix: Use partial to create a factory function that FastAPI expects
-        app.add_middleware(_AccessLogMiddleware, logger_name=logger_name)
 
-def _rid(request: Request) -> str:
-    rid = getattr(getattr(request, "state", object()), "request_id", None)
-    if rid:
-        return str(rid)
-    return request.headers.get("X-Request-ID") or uuid.uuid4().hex
+def install_access_logger(app: FastAPI) -> None:
+    """Add AccessLogMiddleware to the app."""
+    app.add_middleware(AccessLogMiddleware, logger_name="aiobs")
+
 
 def install_error_handlers(app: FastAPI) -> None:
-    @app.exception_handler(HTTPException)
-    async def _http_exc_handler(request: Request, exc: HTTPException):
-        rid = _rid(request)
-        payload = {
-            "code": status_code_to_code(exc.status_code),
-            "message": str(exc.detail) if exc.detail else "HTTP error",
-            "requestId": rid,
-        }
-        return JSONResponse(status_code=exc.status_code, content=payload, headers={"X-Request-ID": rid})
+    """Install exception handlers with proper typing."""
+    # Both handlers now accept Exception and return Response, satisfying FastAPI's requirements
+    app.add_exception_handler(HTTPException, http_exception_handler)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
 
-    @app.exception_handler(RequestValidationError)
-    async def _validation_handler(request: Request, exc: RequestValidationError):
-        rid = _rid(request)
-        payload = {"code": "validation_error", "message": "Validation failed", "requestId": rid}
-        return JSONResponse(status_code=422, content=payload, headers={"X-Request-ID": rid})
 
-    @app.exception_handler(Exception)
-    async def _unhandled_handler(request: Request, exc: Exception):
-        rid = _rid(request)
-        payload = {"code": "internal_error", "message": "Internal Server Error", "requestId": rid}
-        return JSONResponse(status_code=500, content=payload, headers={"X-Request-ID": rid})
+def install(app: FastAPI) -> None:
+    """
+    Wire up middlewares and exception handlers. Keep this thin.
+    Order: request-id first (so everyone sees it), then access logging.
+    """
+    ensure_request_id_middleware(app)
+    install_access_logger(app)
+    install_error_handlers(app)

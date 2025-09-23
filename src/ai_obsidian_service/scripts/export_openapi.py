@@ -4,7 +4,7 @@ import sys
 
 from fastapi.openapi.utils import get_openapi
 
-from ai_obsidian_service.indexer.app import app
+from ai_obsidian_service.api.app import app
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))

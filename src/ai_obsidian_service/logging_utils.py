@@ -1,142 +1,172 @@
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import datetime
 import json
 import logging
-import sys
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 
-__all__ = [
-    "JsonFormatter",
-    "install_json_logging",
-    "install_request_id_filter",
-    "set_request_id",
-    "clear_request_id",
-    "get_request_id",
-    "configure_logging",
-]
+# Python 3.11+: datetime.UTC exists; older: fallback to timezone.utc
+_TZ = getattr(datetime, "UTC", datetime.UTC)
 
-# ContextVar for MDC-like request id propagation
-_request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("request_id", default=None)
+# ------------ request-id context ------------
+
+_request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "aiobs_request_id",
+    default=None,
+)
 
 def set_request_id(rid: str | None) -> None:
+    """Set the request id into a task-local contextvar."""
     _request_id_var.set(rid)
 
-def clear_request_id() -> None:
-    _request_id_var.set(None)
-
 def get_request_id() -> str | None:
+    """Get the current request id (or None if not set)."""
     return _request_id_var.get()
 
-_BASE_FIELDS = {
-    "name","msg","args","levelname","levelno","pathname","filename","module",
-    "exc_info","exc_text","stack_info","lineno","funcName","created","msecs",
-    "relativeCreated","thread","threadName","processName","process","message",
-}
+@contextlib.contextmanager
+def with_request_id(rid: str | None):
+    """
+    Temporarily bind a request id for the current task.
+    Useful in jobs/tests that want scoped correlation.
+    """
+    token = _request_id_var.set(rid)
+    try:
+        yield
+    finally:
+        _request_id_var.reset(token)
 
-def _is_jsonable(x: Any) -> bool:
-    return isinstance(x, (str, int, float, bool)) or x is None
+# ------------ logging filter & formatter ------------
 
-def _to_jsonable(obj: Any) -> Any:
-    if _is_jsonable(obj):
-        return obj
-    if isinstance(obj, (list, tuple)):
-        return [_to_jsonable(v) for v in obj]
-    if isinstance(obj, dict):
-        return {str(k): _to_jsonable(v) for k, v in obj.items()}
-    return str(obj)
+class RequestIdFilter(logging.Filter):
+    """
+    Injects `requestId` attribute into LogRecord from the contextvar.
+    Tests look for LogRecord.requestId specifically.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
+        try:
+            record.requestId = get_request_id()
+        except Exception:
+            record.requestId = None
+        return True
+
 
 class JsonFormatter(logging.Formatter):
-    """Minimal JSON formatter for Python logging."""
-    def __init__(self, *, time_key: str = "ts"):
-        super().__init__()
-        self.time_key = time_key
+    """
+    Minimal JSON formatter.
 
-    def format(self, record: logging.LogRecord) -> str:
-        record.message = record.getMessage()
+    - ISO 8601 time with timezone awareness (no deprecated utcfromtimestamp).
+    - Includes arbitrary "extra" fields if present on the LogRecord.
+    - Always carries `requestId` if available (via RequestIdFilter).
+    """
+
+    def __init__(self, *, extra_keys: Iterable[str] | None = None) -> None:
+        super().__init__()
+        self._extra_keys = tuple(extra_keys or ())
+
+    def format(self, record: logging.LogRecord) -> str:  # noqa: D401
         payload: dict[str, Any] = {
-            self.time_key: datetime.datetime.utcfromtimestamp(record.created).isoformat() + "Z",
-            "level": record.levelname.lower(),
+            "level": record.levelname,
             "logger": record.name,
-            "msg": record.message,
+            "message": record.getMessage(),
+            "time": datetime.datetime.fromtimestamp(record.created, _TZ).isoformat(),
         }
-        # attach requestId if present on record (from filter) or leave as-is if supplied via extra
+
         rid = getattr(record, "requestId", None)
         if rid is not None:
             payload["requestId"] = rid
 
-        # include source hints for debug
-        if record.levelno <= logging.DEBUG:
-            payload.update(module=record.module, func=record.funcName, line=record.lineno)
-
-        extras = {k: v for k, v in record.__dict__.items() if k not in _BASE_FIELDS}
-        if extras:
-            for k, v in extras.items():
-                if k == "requestId":  # already handled
-                    continue
-                payload[k] = _to_jsonable(v)
+        # Common HTTP-ish attributes + user-configured keys
+        for key in ("status_code", "path", "method", "duration_ms", "client", "user_agent", *self._extra_keys):
+            if hasattr(record, key):
+                payload[key] = getattr(record, key)
 
         if record.exc_info:
             payload["exc_info"] = self.formatException(record.exc_info)
+
         return json.dumps(payload, ensure_ascii=False)
 
-class RequestIdFilter(logging.Filter):
-    """Injects requestId from ContextVar into every record if not already provided."""
-    def filter(self, record: logging.LogRecord) -> bool:
-        if not hasattr(record, "requestId"):
-            rid = get_request_id()
-            if rid is not None:
-                record.requestId = rid
-        return True
+# ------------ installers ------------
 
 def install_json_logging(
-    *, level: int = logging.INFO, logger_names: Sequence[str] | None = None, include_uvicorn: bool = True
+        *,
+        level: int = logging.INFO,
+        logger_names: Sequence[str] | None = None,
+        include_uvicorn: bool = True,
+        extra_keys: Iterable[str] | None = None,
 ) -> None:
-    """Install a JSON StreamHandler on selected loggers (and uvicorn.* when enabled)."""
-    handler = logging.StreamHandler(stream=sys.stdout)
-    handler.setLevel(level)
-    handler.setFormatter(JsonFormatter())
+    """
+    Configure root (and optionally uvicorn) to use JSON logging and carry requestId.
 
-    targets = list(logger_names or [])
+    - Attaches a single StreamHandler with JsonFormatter to the root logger.
+    - Adds RequestIdFilter so LogRecord.requestId is always present.
+    - Clears pre-existing handlers on target loggers and lets them propagate to root.
+    """
+    handler = logging.StreamHandler()
+    handler.setFormatter(JsonFormatter(extra_keys=extra_keys))
+    handler.addFilter(RequestIdFilter())
+
+    root = logging.getLogger()
+    root.setLevel(level)
+    root.handlers.clear()
+    root.addHandler(handler)
+
+    targets: list[str] = list(logger_names or [])
     if include_uvicorn:
-        targets.extend(["uvicorn.error", "uvicorn.access"])
+        targets.extend(["uvicorn", "uvicorn.error", "uvicorn.access"])
 
-    if targets:
-        for name in targets:
-            logger = logging.getLogger(name)
-            # prevent duplicate formatter installation
-            if not any(isinstance(h.formatter, JsonFormatter) for h in logger.handlers if h.formatter):
-                logger.addHandler(handler)
-            logger.setLevel(level)
-            logger.propagate = False
-    else:
-        root = logging.getLogger()
-        if not any(isinstance(h.formatter, JsonFormatter) for h in root.handlers if h.formatter):
-            root.addHandler(handler)
-        root.setLevel(level)
+    for name in targets:
+        lg = logging.getLogger(name)
+        lg.setLevel(level)
+        lg.handlers.clear()
+        lg.propagate = True  # bubble to root where our handler/filter live
 
 def install_request_id_filter(logger_names: Sequence[str] | None = None) -> None:
-    """Attach RequestIdFilter to selected loggers and root so every record gets requestId if available."""
+    """
+    Add RequestIdFilter to existing handlers on selected loggers (and root).
+    Useful if tooling attached its own handlers before our install_json_logging.
+    """
     filt = RequestIdFilter()
-    if logger_names:
-        for name in logger_names:
-            logger = logging.getLogger(name)
-            if not any(isinstance(f, RequestIdFilter) for f in logger.filters):
-                logger.addFilter(filt)
-    else:
-        root = logging.getLogger()
-        if not any(isinstance(f, RequestIdFilter) for f in root.filters):
-            root.addFilter(filt)
+    targets = [logging.getLogger()] + [logging.getLogger(n) for n in (logger_names or ())]
+    for lg in targets:
+        for h in lg.handlers:
+            h.addFilter(filt)
 
-def configure_logging(*, json_enabled: bool, level: int, log_uvicorn: bool) -> None:
-    """Single entrypoint to configure logging across the app."""
-    if json_enabled:
-        install_json_logging(
-            level=level,
-            logger_names=["ai_obsidian_service.api.access"],
-            include_uvicorn=log_uvicorn,
-        )
-    # Always install requestId filter to root and key loggers
-    install_request_id_filter(logger_names=["", "uvicorn.error", "uvicorn.access", "ai_obsidian_service"])
+# ------------ optional utilities (kept small) ------------
+
+def configure_logger(
+        name: str,
+        *,
+        level: int = logging.INFO,
+        use_json: bool = True,
+        extra_keys: Iterable[str] | None = None,
+        add_request_id_filter: bool = True,
+) -> logging.Logger:
+    """
+    Create/refresh a named logger with a local handler (bypassing root).
+    Prefer `install_json_logging` for global config; use this for ad-hoc loggers.
+    """
+    lg = logging.getLogger(name)
+    lg.setLevel(level)
+    lg.handlers.clear()
+
+    handler = logging.StreamHandler()
+    if use_json:
+        handler.setFormatter(JsonFormatter(extra_keys=extra_keys))
+    if add_request_id_filter:
+        handler.addFilter(RequestIdFilter())
+    lg.addHandler(handler)
+    lg.propagate = False
+    return lg
+
+def get_json_logger(name: str) -> logging.Logger:
+    """
+    Return a logger that propagates to root (assumes install_json_logging was called).
+    Handy for libs: no local handlers; root controls format/filters.
+    """
+    lg = logging.getLogger(name)
+    lg.propagate = True
+    return lg

@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from ai_obsidian_service.adapters.services.search_service import SearchService
+
+# Expose FastAPI app for tests (and for `uvicorn ai_obsidian_service.main:app` if desired)
+from ai_obsidian_service.api.app import app  # noqa: F401
 from ai_obsidian_service.config.container import (
     build_index_corpus,
     build_search_service,
