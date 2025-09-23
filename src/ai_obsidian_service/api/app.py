@@ -13,7 +13,9 @@ from ai_obsidian_service.adapters.services.search_service import SearchService
 from ai_obsidian_service.config.container import build_search_service
 from ai_obsidian_service.config.settings import get_settings
 from ai_obsidian_service.core import Query
-from ai_obsidian_service.logging_utils import configure_logging
+from ai_obsidian_service.logging_utils import (
+    configure_logger,  # Fixed: configure_logger instead of configure_logging
+)
 
 from .errors import (
     ensure_request_id_middleware,
@@ -27,7 +29,7 @@ settings = get_settings()
 
 # Configure logging once (JSON + MDC filter)
 level = getattr(logging, settings.log_level.upper(), logging.INFO)
-configure_logging(
+configure_logger(  # Fixed: configure_logger instead of configure_logging
     json_enabled=settings.json_logs_enabled,
     level=level,
     log_uvicorn=settings.log_uvicorn,
