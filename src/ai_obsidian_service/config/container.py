@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from ai_obsidian_service.adapters.parsers import default_parsers
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
 from ai_obsidian_service.adapters.index.faiss_index import FaissIndex
+from ai_obsidian_service.adapters.parsers import default_parsers
 from ai_obsidian_service.adapters.services.search_service import SearchService
 from ai_obsidian_service.usecases.index_corpus import IndexCorpus
 

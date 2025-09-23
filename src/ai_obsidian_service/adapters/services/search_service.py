@@ -1,5 +1,6 @@
 from __future__ import annotations
-from collections.abc import Iterable, Sequence
+
+from collections.abc import Iterable
 from typing import Any
 
 from ai_obsidian_service.core import Chunk, Chunker, Document, DocumentParser, Query

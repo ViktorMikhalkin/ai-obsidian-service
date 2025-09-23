@@ -1,9 +1,10 @@
 from __future__ import annotations
+
 from collections.abc import Iterable
 from pathlib import Path
 
-from ai_obsidian_service.core import Chunker, DocumentParser
 from ai_obsidian_service.adapters.services.search_service import SearchService
+from ai_obsidian_service.core import Chunker, DocumentParser
 
 
 class IndexCorpus:

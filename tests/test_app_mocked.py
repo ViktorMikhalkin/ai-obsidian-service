@@ -3,8 +3,9 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 
+# Fix: Import the correct dependency function name
+from ai_obsidian_service.api.app import app, get_search_service
 from ai_obsidian_service.domain.models import ChunkId, DocId, Hit, Query, SearchResult
-from ai_obsidian_service.main import app, get_indexer_service
 
 
 @pytest.fixture
@@ -39,6 +40,7 @@ def mock_indexer_service():
         retrieved_at="2025-01-01T00:00:00",
     )
     mock_service.search_text.return_value = mock_result
+    mock_service.resolve_meta.return_value = mock_result  # Add resolve_meta mock
     mock_service.llm_client = None
 
     return mock_service
@@ -53,7 +55,7 @@ def test_health_endpoint():
 
 
 def test_search_endpoint_with_mock(mock_indexer_service):
-    app.dependency_overrides[get_indexer_service] = lambda: mock_indexer_service
+    app.dependency_overrides[get_search_service] = lambda: mock_indexer_service
 
     try:
         client = TestClient(app)
@@ -64,9 +66,8 @@ def test_search_endpoint_with_mock(mock_indexer_service):
         assert "results" in data
         assert len(data["results"]) == 2
 
-        # Update: Check that search_text was called instead of encode
+        # Check that search_text was called
         mock_indexer_service.search_text.assert_called_once_with("test query", 2)
-        # Remove: mock_indexer_service.embed.encode.assert_called_once_with(["test query"])
 
     finally:
         app.dependency_overrides.clear()
@@ -74,12 +75,12 @@ def test_search_endpoint_with_mock(mock_indexer_service):
 
 def test_answer_endpoint_with_mock(mock_indexer_service):
     """Test answer endpoint with mocked service."""
-    app.dependency_overrides[get_indexer_service] = lambda: mock_indexer_service
+    app.dependency_overrides[get_search_service] = lambda: mock_indexer_service
 
     try:
         client = TestClient(app)
         response = client.post(
-            "/answer", json={"query": "test question", "top_k": 1, "max_tokens": 100}
+            "/answer", json={"query": "test question", "top_k": 1}
         )
 
         assert response.status_code == 200

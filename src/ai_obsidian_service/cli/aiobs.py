@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 import fnmatch
-import json
 import os
+from collections.abc import Iterable
 from datetime import datetime as _dt
 from pathlib import Path
-from typing import Iterable
 
 import typer
 import yaml
 
-from ai_obsidian_service.adapters.parsers import default_parsers
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
 from ai_obsidian_service.adapters.index.faiss_index import FaissIndex
+from ai_obsidian_service.adapters.parsers import default_parsers
 from ai_obsidian_service.adapters.services.search_service import SearchService
 
 app = typer.Typer(help="AI↔Obsidian CLI (unified ports)")
