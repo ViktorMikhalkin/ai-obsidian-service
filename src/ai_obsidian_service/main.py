@@ -1,91 +1,69 @@
 from __future__ import annotations
 
-import logging
-from collections.abc import Callable
-from contextlib import asynccontextmanager
-from functools import lru_cache
-from typing import cast
+import argparse
+import json
+import signal
+import sys
+from dataclasses import asdict, is_dataclass
+from pathlib import Path
+from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request
-
-from .api.errors import (
-    ensure_request_id_middleware,
-    install_access_logger,
-    install_error_handlers,
-)
-from .api.mappers import ResolveMeta, hit_to_search_hit, hits_to_search_response
-from .api.schemas import AnswerRequest, AnswerResponse, SearchRequest, SearchResponse
-from .config.container import build_search_service
-from .config.settings import get_settings
-from .core import Query
-from .indexer.services import IndexerService  # alias of SearchService
-from .logging_utils import configure_logging
-
-settings = get_settings()
-
-# Configure logging once (JSON + MDC filter)
-level = getattr(logging, settings.log_level.upper(), logging.INFO)
-configure_logging(
-    json_enabled=settings.json_logs_enabled,
-    level=level,
-    log_uvicorn=settings.log_uvicorn,
+from ai_obsidian_service.adapters.services.search_service import SearchService
+from ai_obsidian_service.config.container import (
+    build_index_corpus,
+    build_search_service,
 )
 
-@lru_cache(maxsize=1)
-def get_indexer_service() -> IndexerService:
-    index_dir = settings.index_dir
-    svc = build_search_service(index_dir=index_dir)
-    return cast(IndexerService, svc)
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    svc = get_indexer_service()
-    try:
-        yield
-    finally:
-        try:
-            svc.shutdown()
-        except Exception:
-            pass
+def _to_plain(obj: Any) -> Any:
+    """Best-effort JSON-serializable view for SearchResult/Hit/etc."""
+    if is_dataclass(obj):
+        return asdict(obj)
+    if hasattr(obj, "__dict__"):
+        # avoid non-serializable attributes
+        safe: dict[str, Any] = {}
+        for k, v in obj.__dict__.items():
+            try:
+                json.dumps(v)
+                safe[k] = v
+            except Exception:
+                safe[k] = str(v)
+        return safe
+    if isinstance(obj, (list, tuple)):
+        return [_to_plain(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: _to_plain(v) for k, v in obj.items()}
+    return obj
 
-app = FastAPI(title=settings.app_name, lifespan=lifespan)
-ensure_request_id_middleware(app)
-install_access_logger(app)
-install_error_handlers(app)
 
-def _as_hits(obj):
-    try:
-        return list(obj.hits)
-    except AttributeError:
-        return list(obj)
+def _print_json(payload: Any) -> None:
+    print(json.dumps(_to_plain(payload), ensure_ascii=False, indent=2))
 
-@app.get("/health")
-def health(request: Request):
-    logging.getLogger("ai_obsidian_service.app").info("health ping")
-    return {"ok": True, "errors": []}
 
-@app.post("/search", response_model=SearchResponse)
-def search(req: SearchRequest, svc: IndexerService = Depends(get_indexer_service)) -> SearchResponse:
-    try:
-        result = svc.search_text(req.query, req.top_k)
-        hits = _as_hits(result)
-        resolve = cast(Callable[..., ResolveMeta], svc.resolve_meta)
-        return hits_to_search_response(Query(text=req.query, top_k=req.top_k), hits, resolve)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+def _install_sigterm(service: SearchService | None) -> None:
+    def _handler(sig: int, _frame) -> None:
+        # graceful shutdown if running long-lived command (serve…)
+        if service is not None:
+            try:
+                service.shutdown()
+            except Exception:
+                pass
+        sys.exit(0)
 
-@app.post("/answer", response_model=AnswerResponse)
-def answer(req: AnswerRequest, svc: IndexerService = Depends(get_indexer_service)) -> AnswerResponse:
-    try:
-        result = svc.search_text(req.query, req.top_k)
-        hits = _as_hits(result)
-        resolve = cast(Callable[..., ResolveMeta], svc.resolve_meta)
-        dto_hits = [hit_to_search_hit(h, resolve) for h in hits]
-        answer_text = " ".join(h.preview for h in dto_hits if h.preview) or "No answer."
-        return AnswerResponse(query=req.query, answer=answer_text, sources=dto_hits)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    for s in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(s, _handler)
+
+
+# ---------------------- commands ---------------------- #
+
+def cmd_index_root(args: argparse.Namespace) -> int:
+    """
+    Bulk indexing of a directory: selects parsers, parses and delegates indexing to service.
+    """
+    root = Path(args.root)
+    if not root.exists():
+        print(f"[index] root not found: {root}", file=sys.stderr)
+        return 2
+
+    usecase = build_index_corpus(index_dir=args.index_dir)
+    count = usecase.run(str(root))
