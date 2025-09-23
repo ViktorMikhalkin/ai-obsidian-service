@@ -6,7 +6,12 @@ from typing import Any
 import numpy as np
 
 from ai_obsidian_service.core import Chunk, Chunker, Document, DocumentParser
-from ai_obsidian_service.domain.models import EmbeddedChunk, EmbeddedQuery, SearchResult
+from ai_obsidian_service.domain.models import (
+    EmbeddedChunk,
+    EmbeddedQuery,
+    Query,
+    SearchResult,
+)
 
 
 class SearchService:
@@ -23,11 +28,11 @@ class SearchService:
     """
 
     def __init__(
-            self,
-            *,
-            parsers: Iterable[DocumentParser],
-            chunker: Chunker,
-            index: Any,  # must expose: upsert(Iterable[EmbeddedChunk]); search_text(str,int) or search(EmbeddedQuery)
+        self,
+        *,
+        parsers: Iterable[DocumentParser],
+        chunker: Chunker,
+        index: Any,  # must expose: upsert(Iterable[EmbeddedChunk]); search_text(str,int) or search(EmbeddedQuery)
     ) -> None:
         self.parsers = list(parsers)
         self.chunker = chunker
@@ -61,7 +66,7 @@ class SearchService:
         """Split a parsed document and upsert embedded chunks into the index."""
         chunks: list[Chunk] = list(self.chunker.split(doc))
         embedded: list[EmbeddedChunk] = [
-            EmbeddedChunk(chunk=c, embedding=self._vec(c.text).tolist()) for c in chunks
+            EmbeddedChunk(chunk=c, embedding=self._vec(c.text)) for c in chunks
         ]
         self.index.upsert(embedded)
         return len(embedded)
@@ -87,7 +92,8 @@ class SearchService:
             return self.index.search_text(text, top_k)  # type: ignore[no-any-return]
 
         if hasattr(self.index, "search"):
-            eq = EmbeddedQuery(text=text, embedding=self._vec(text).tolist(), top_k=top_k)
+            q = Query(text=text, top_k=top_k)
+            eq = EmbeddedQuery(query=q, embedding=self._vec(text))
             return self.index.search(eq)  # type: ignore[no-any-return]
 
         raise NotImplementedError(
@@ -107,10 +113,14 @@ class SearchService:
             try:
                 stats = get_stats()
                 if isinstance(stats, dict):
-                    return stats  # type: ignore[return-value]
+                    return stats
             except Exception:
                 pass
-        return {"documents": 0, "chunks": 0, "engine": getattr(self.index, "__class__", type("X", (), {})).__name__}
+        return {
+            "documents": 0,
+            "chunks": 0,
+            "engine": getattr(self.index, "__class__", type("X", (), {})).__name__,
+        }
 
     # ----------------------------- lifecycle ------------------------------- #
 
