@@ -1,108 +1,71 @@
 from __future__ import annotations
-
+from collections.abc import Iterable, Sequence
 from typing import Any
 
-from ai_obsidian_service.core import (
-    Chunker,
-    ChunkId,
-    DocId,
-    Document,
-    DocumentParser,
-    EmbeddingIndex,
-    Hit,
-    Query,
-)
-from ai_obsidian_service.domain.models import EmbeddedQuery, Chunk
-
-
-def _embed_text(text: str, dim: int = 64):
-    """Deterministic lightweight embedding (works with or without NumPy)."""
-    try:
-        import numpy as np
-    except Exception:  # pragma: no cover
-        vec = [0.0] * dim
-        if text:
-            for i, ch in enumerate(text):
-                vec[(ord(ch) + i) % dim] += 1.0
-        norm = sum(v * v for v in vec) ** 0.5
-        return [v / norm if norm > 0 else 0.0 for v in vec]
-    else:
-        v = np.zeros(dim, dtype=float)
-        if text:
-            for i, ch in enumerate(text):
-                v[(ord(ch) + i) % dim] += 1.0
-        n = float(np.linalg.norm(v))
-        return v / n if n > 0 else v
+from ai_obsidian_service.core import Chunk, Chunker, Document, DocumentParser, Query
+from ai_obsidian_service.domain.models import SearchResult
 
 
 class SearchService:
-    """Orchestrates parsing → chunking → indexing and search over EmbeddingIndex."""
+    """
+    Single application service for indexing/search for the top level of the application.
+    Contract:
+      - index_document(doc) -> int
+      - index_path(path) -> int
+      - search_text(text, top_k) -> SearchResult
+      - resolve_meta(result) -> SearchResult
+      - shutdown() -> None
+    """
 
     def __init__(
-        self,
-        parsers: list[DocumentParser],
-        chunker: Chunker,
-        index: EmbeddingIndex,
+            self,
+            *,
+            parsers: Iterable[DocumentParser],
+            chunker: Chunker,
+            index: Any,  # object implementing upsert(chunks) and search(Query) -> SearchResult
     ) -> None:
-        self.parsers = parsers
+        self.parsers = list(parsers)
         self.chunker = chunker
         self.index = index
-        # meta by (doc_id, chunk_order)
-        self._meta: dict[tuple[str, int], dict[str, Any]] = {}
 
-# ---------- Indexing ----------
+    # ---------- indexing ----------
 
-def index_document(self, doc: Document) -> int:
-    """Index a parsed document and return number of chunks stored."""
-    chunks: list[Chunk] = list(self.chunker.split(doc))
-    self.index.upsert(chunks)
-    return len(chunks)
+    def index_document(self, doc: Document) -> int:
+        """Split document into chunks and put them into the index. Returns number of chunks."""
+        chunks: list[Chunk] = list(self.chunker.split(doc))
+        self.index.upsert(chunks)
+        return len(chunks)
 
-def index_path(self, path: str) -> int:
-    """Parse and index a single path; return number of chunks stored."""
-    for p in self.parsers:
-        if p.can_parse(path):
-            doc: Document = p.parse(path)
-            return self.index_document(doc)
-    return 0
+    def index_path(self, path: str) -> int:
+        """Parse file by path and index it."""
+        for p in self.parsers:
+            if p.can_parse(path):
+                doc: Document = p.parse(path)
+                return self.index_document(doc)
+        return 0
 
-# ---------- Search ----------
+    # ---------- search ----------
 
-def search_text(self, text: str, top_k: int = 5) -> list[Hit]:
-    dim = getattr(self.index, "dim", 64)
-    eq = EmbeddedQuery(
-        query=Query(text=text, top_k=top_k), embedding=_embed_text(text, dim)
-    )
-    result = self.index.search(eq)
-    return result.hits
+    def search_text(self, text: str, top_k: int = 5) -> SearchResult:
+        """
+        Search by text query — service accepts raw text,
+        forms Query and delegates to index.
+        """
+        q = Query(text=text, top_k=top_k)
+        result: SearchResult = self.index.search(q)
+        return result
 
-# ---------- Resolve ----------
+    def resolve_meta(self, result: SearchResult) -> SearchResult:
+        """
+        Hook for enriching hit metadata (preview, paths, etc.).
+        Current implementation is passthrough.
+        """
+        return result
 
-def resolve_meta(
-    self, doc_id: DocId, chunk_id: ChunkId, order: int
-) -> dict[str, Any]:
-    key = (str(doc_id), int(order))
-    return dict(self._meta.get(key, {}))
+    # ---------- lifecycle ----------
 
-# ---------- Observability ----------
-
-def get_stats(self) -> dict[str, object]:
-    docs = {k[0] for k in self._meta.keys()}
-    return {
-        "total_documents": len(docs),
-        "total_chunks": len(self._meta),
-        "errors": [],
-    }
-
-# ---------- Lifecycle ----------
-
-def shutdown(self) -> None:
-    """Release resources gracefully (best-effort)."""
-    idx = getattr(self, "index", None)
-    for name in ("flush", "close", "shutdown"):
-        fn = getattr(idx, name, None)
-        if callable(fn):
-            try:
-                fn()
-            except Exception:
-                pass
+    def shutdown(self) -> None:
+        """Proper shutdown and resource cleanup for index (if required)."""
+        close = getattr(self.index, "close", None)
+        if callable(close):
+            close()

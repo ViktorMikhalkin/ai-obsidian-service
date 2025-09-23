@@ -3,19 +3,21 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from ai_obsidian_service.core import Chunker, DocumentParser
-from ai_obsidian_service.adapters.services.search_service import SearchService  # NEW
+from ai_obsidian_service.adapters.services.search_service import SearchService
+
 
 class IndexCorpus:
-    """Walk a root directory and let SearchService index each file."""
+    """
+    Bulk indexing of a directory: parser selection, parsing and delegation of indexing to SearchService.
+    """
 
     def __init__(
             self,
             parsers: Iterable[DocumentParser],
-            chunker: Chunker,
-            service: SearchService,             # CHANGED: вместо EmbeddingIndex
+            chunker: Chunker,              # keep in signature for DI consistency, though not used internally
+            service: SearchService,
     ) -> None:
         self.parsers = list(parsers)
-        self.chunker = chunker
         self.service = service
 
     def run(self, root: str) -> int:
@@ -26,6 +28,6 @@ class IndexCorpus:
             spath = str(path)
             for p in self.parsers:
                 if p.can_parse(spath):
-                    count += self.service.index_path(spath)   # DELEGATE
+                    count += self.service.index_path(spath)
                     break
         return count
