@@ -64,7 +64,7 @@ def _content_length(response) -> int | None:
     return size
 
 class _AccessLogMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: FastAPI, logger_name: str = "ai_obsidian_service.api.access"):
+    def __init__(self, app, logger_name: str = "ai_obsidian_service.api.access"):
         super().__init__(app)
         self._logger = logging.getLogger(logger_name)
 
@@ -97,12 +97,13 @@ def ensure_request_id_middleware(app: FastAPI) -> None:
     else:
         app.add_middleware(_RequestIdMiddleware)
 
-def install_access_logger(app: FastAPI) -> None:
+def install_access_logger(app: FastAPI, logger_name: str = "ai_obsidian_service.api.access") -> None:
     for m in app.user_middleware:
         if getattr(m, "cls", None) is _AccessLogMiddleware:
             break
     else:
-        app.add_middleware(_AccessLogMiddleware)
+        # Fix: Use partial to create a factory function that FastAPI expects
+        app.add_middleware(_AccessLogMiddleware, logger_name=logger_name)
 
 def _rid(request: Request) -> str:
     rid = getattr(getattr(request, "state", object()), "request_id", None)

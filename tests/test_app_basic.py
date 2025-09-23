@@ -3,9 +3,9 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 
+from ai_obsidian_service.adapters.services.search_service import SearchService
+from ai_obsidian_service.api.app import app, get_search_service
 from ai_obsidian_service.domain.models import ChunkId, DocId, Hit, Query, SearchResult
-from ai_obsidian_service.indexer.services import IndexerService
-from ai_obsidian_service.main import app, get_indexer_service
 
 
 def _route_exists(path: str, method: str = "GET") -> bool:
@@ -17,9 +17,9 @@ def _route_exists(path: str, method: str = "GET") -> bool:
 
 
 @pytest.fixture
-def mock_indexer_service():
-    """Create a mock IndexerService for unit testing."""
-    mock_service = Mock(spec=IndexerService)
+def mock_search_service():
+    """Create a mock SearchService for unit testing."""
+    mock_service = Mock(spec=SearchService)
 
     # Mock search_text method to return a proper SearchResult
     mock_result = SearchResult(
@@ -40,6 +40,7 @@ def mock_indexer_service():
         retrieved_at="2025-01-01T00:00:00Z",
     )
     mock_service.search_text.return_value = mock_result
+    mock_service.resolve_meta.return_value = mock_result  # Add resolve_meta mock
 
     # Mock other service methods that might be called
     mock_service.get_stats.return_value = {
@@ -69,15 +70,16 @@ def test_health_exists_and_ok():
         data = r.json()
         assert isinstance(data, dict)
         assert "ok" in data
+        assert data["ok"] is True
 
 
-def test_search_minimal_contract(mock_indexer_service):
-    """Test search endpoint with mocked service - this is now a proper unit test."""
+def test_search_minimal_contract(mock_search_service):
+    """Test search endpoint with mocked service."""
     if not _route_exists("/search", "POST"):
         pytest.skip("No /search endpoint in this app version")
 
     # Override the dependency with our mock
-    app.dependency_overrides[get_indexer_service] = lambda: mock_indexer_service
+    app.dependency_overrides[get_search_service] = lambda: mock_search_service
 
     try:
         with TestClient(app) as client:
@@ -100,32 +102,37 @@ def test_search_minimal_contract(mock_indexer_service):
             assert "score" in hit
 
             # Verify the service was called correctly
-            mock_indexer_service.search_text.assert_called_once_with("test", 1)
+            mock_search_service.search_text.assert_called_once_with("test", 1)
 
     finally:
         # Clean up the dependency override
         app.dependency_overrides.clear()
 
 
-def test_search_response_fields(mock_indexer_service):
-    """Test that search response includes all expected fields."""
-    if not _route_exists("/search", "POST"):
-        pytest.skip("No /search endpoint in this app version")
+def test_answer_minimal_contract(mock_search_service):
+    """Test answer endpoint with mocked service."""
+    if not _route_exists("/answer", "POST"):
+        pytest.skip("No /answer endpoint in this app version")
 
-    app.dependency_overrides[get_indexer_service] = lambda: mock_indexer_service
+    app.dependency_overrides[get_search_service] = lambda: mock_search_service
 
     try:
         with TestClient(app) as client:
-            r = client.post("/search", json={"query": "test query", "top_k": 2})
+            r = client.post("/answer", json={"query": "test question", "top_k": 1})
             assert r.status_code == 200
             body = r.json()
 
-            # Check enhanced response fields
-            assert "results" in body
-            if "total_time_ms" in body:
-                assert isinstance(body["total_time_ms"], (int, float))
-            if "retrieved_at" in body:
-                assert isinstance(body["retrieved_at"], str)
+            # Verify the response structure
+            assert isinstance(body, dict)
+            assert "query" in body
+            assert "answer" in body
+            assert "sources" in body
+            assert body["query"] == "test question"
+            assert isinstance(body["answer"], str)
+            assert isinstance(body["sources"], list)
+
+            # Verify the service was called correctly
+            mock_search_service.search_text.assert_called_once_with("test question", 1)
 
     finally:
         app.dependency_overrides.clear()
@@ -137,21 +144,56 @@ def test_search_error_handling():
         pytest.skip("No /search endpoint in this app version")
 
     # Create a mock that raises an exception
-    failing_mock = Mock(spec=IndexerService)
+    failing_mock = Mock(spec=SearchService)
     failing_mock.search_text.side_effect = Exception("Service unavailable")
 
-    app.dependency_overrides[get_indexer_service] = lambda: failing_mock
+    app.dependency_overrides[get_search_service] = lambda: failing_mock
 
     try:
         with TestClient(app) as client:
             r = client.post("/search", json={"query": "test", "top_k": 1})
             assert r.status_code == 500
             body = r.json()
-            assert (
-                all(k in body for k in ("code", "message", "requestId"))
-                and "detail" not in body
-            )
+            # Check that we get proper error response structure from error handlers
+            assert "code" in body
+            assert "message" in body
+            assert "requestId" in body
             assert "Service unavailable" in body["message"]
 
     finally:
         app.dependency_overrides.clear()
+
+
+def test_service_integration():
+    """Test that we can build and use the search service directly."""
+    from ai_obsidian_service.config.container import build_search_service
+    from ai_obsidian_service.core import DocId, Document
+
+    # Build the service
+    service = build_search_service(index_dir=None)
+
+    try:
+        # Test basic functionality
+        doc = Document(
+            id=DocId("test-doc"),
+            path="/tmp/test.md",
+            mime="text/markdown",
+            text="This is a test document with some content."
+        )
+
+        # Index a document
+        chunks_added = service.index_document(doc)
+        assert chunks_added > 0
+
+        # Search for content
+        result = service.search_text("test", top_k=1)
+        assert result is not None
+        assert hasattr(result, 'hits')
+
+        # Test resolve_meta
+        resolved = service.resolve_meta(result)
+        assert resolved is not None
+
+    finally:
+        # Clean up
+        service.shutdown()

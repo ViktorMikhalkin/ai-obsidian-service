@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from ai_obsidian_service.core import Chunk, ChunkId, Chunker, DocId, Document
+
+from ai_obsidian_service.core import Chunk, Chunker, ChunkId, DocId, Document
+
 
 def chunk_text(text: str, max_chars: int = 1000, overlap: int = 100) -> list[str]:
     res: list[str] = []

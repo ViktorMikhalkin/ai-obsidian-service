@@ -32,7 +32,7 @@ def _has_numpy() -> bool:
 
 
 if _has_numpy():
-    import numpy as np  # type: ignore[no-redef]
+    import numpy as np  # Remove the unused type: ignore comment
 else:
     np = None  # type: ignore[assignment]
 
