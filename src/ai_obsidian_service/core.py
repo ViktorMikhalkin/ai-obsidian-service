@@ -1,9 +1,7 @@
-"""
-Public façade for domain entities and ports (GRASP/SOLID layer).
-Safe to import in type hints, contracts, and application assembly.
-This module has no heavy side-effects and imports only lightweight symbols.
-"""
 
+"""
+Public façade for domain entities and ports.
+"""
 from .domain.models import Chunk, ChunkId, DocId, Document, Hit, Query, SearchResult
 from .ports.interfaces import (
     Chunker,

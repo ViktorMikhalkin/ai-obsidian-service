@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -24,51 +25,28 @@ class Chunk:
     doc_id: DocId
     order: int
     text: str
-    start_char: int = 0
-    end_char: int | None = None
     metadata: dict | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class EmbeddedChunk:
-    """Chunk with its vector embedding - used by infrastructure layer."""
-
     chunk: Chunk
-    embedding: np.ndarray
+    embedding: np.ndarray  # 1D float32
 
 
 @dataclass(frozen=True, slots=True)
 class Query:
     text: str
     top_k: int = 5
-    filters: dict | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class EmbeddedQuery:
-    """Query with its vector embedding - used by infrastructure layer."""
-
-    query: Query
-    embedding: np.ndarray
 
 
 @dataclass(frozen=True, slots=True)
 class Hit:
-    chunk_id: ChunkId
-    doc_id: DocId
-    chunk_order: int
+    chunk: Chunk
     score: float
-    snippet: str
-    start_char: int = 0
-    end_char: int | None = None
-    metadata: dict | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class SearchResult:
-    """Container for search results with metadata."""
-
-    query: Query
+    query: Query | None
     hits: list[Hit]
-    total_time_ms: float
-    retrieved_at: str

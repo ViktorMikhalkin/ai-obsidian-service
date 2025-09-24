@@ -1,8 +1,29 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from ai_obsidian_service.domain.models import EmbeddedChunk, Hit, SearchResult
+from ai_obsidian_service.index.vector_store import VectorStore
+
+try:
+    import faiss  # type: ignore
+except Exception as e:  # pragma: no cover
+    raise RuntimeError(
+        "FAISS is required for FaissVectorStore. Install `faiss-cpu` (or `faiss-gpu`)."
+    ) from e
+
+
+def _read_json(p: str | Path) -> dict:
+    import json
+    return json.loads(Path(p).read_text(encoding="utf-8"))
 
 
 def _default_tmp_index_dir() -> str:
@@ -20,24 +41,6 @@ def _ensure_dir(p: str | Path) -> None:
         Path(p).mkdir(parents=True, exist_ok=True)
     except PermissionError as e:
         raise RuntimeError(f"Cannot create index_dir {p}: {e}") from e
-
-
-import json
-from collections.abc import Sequence
-from dataclasses import dataclass, field
-from typing import Any
-
-import numpy as np
-
-from ai_obsidian_service.domain.models import EmbeddedChunk, SearchHit, SearchResult
-from ai_obsidian_service.index.vector_store import VectorStore
-
-try:
-    import faiss  # type: ignore
-except Exception as e:  # pragma: no cover
-    raise RuntimeError(
-        "FAISS is required for FaissVectorStore. Install `faiss-cpu` (or `faiss-gpu`)."
-    ) from e
 
 
 @dataclass(slots=True)
@@ -73,8 +76,7 @@ class FaissVectorStore(VectorStore):
             if self.dim is None:
                 self.dim = dim
             if self.dim != dim:
-                raise ValueError(f"Vector dimension mismatch: store={self.dim}, got={dim}")
-
+                raise ValueError(f"Vector dimension mismatch: store={self.dim}, got={dim}") from None
     # -------- VectorStore API --------
 
     def upsert(self, chunks: Sequence[EmbeddedChunk]) -> None:
@@ -151,10 +153,10 @@ class FaissVectorStore(VectorStore):
         scores, idxs = self._index.search(Q, k=min(top_k, len(self._ids)))
         ids = [self._ids[i] for i in idxs[0] if i != -1]
 
-        hits: list[SearchHit] = []
+        hits: list[Hit] = []
         for i, cid in enumerate(ids):
             ec = self._chunks[cid]
-            hits.append(SearchHit(chunk=ec.chunk, score=float(scores[0][i])))
+            hits.append(Hit(chunk=ec.chunk, score=float(scores[0][i])))
 
         return SearchResult(query=None, hits=hits)
 
@@ -195,7 +197,7 @@ class FaissVectorStore(VectorStore):
             tmp_path = Path(tmp.name)
             for cid in self._ids:
                 ec = self._chunks[cid]
-                rec = {"id": cid, "text": ec.chunk.text, "meta": ec.chunk.meta}
+                rec = {"id": cid, "text": ec.chunk.text, "meta": ec.chunk.metadata}
                 tmp.write(json.dumps(rec, ensure_ascii=False) + "\n")
         (d / "chunks.jsonl").unlink(missing_ok=True)
         tmp_path.replace(d / "chunks.jsonl")
@@ -272,13 +274,20 @@ class FaissVectorStore(VectorStore):
                 try:
                     pos = ids.index(cid)
                 except ValueError:
-                    raise ValueError(f"chunks.jsonl id '{cid}' not found in ids list")
-                from ai_obsidian_service.core import (
-                    Chunk,  # local import to avoid cycles
+                    raise ValueError("id {cid!r} not found in ids list") from None
+
+                from ai_obsidian_service.core import (  # local import to avoid cycles
+                    Chunk,
+                    DocId,
                 )
                 emb = V[pos, :]
-                chunks_map[cid] = EmbeddedChunk(chunk=Chunk(id=cid, text=text, meta=meta_rec), embedding=emb)
-
+                # reconstruct Chunk from serialized minimal metadata
+                order = int(meta_rec.get("order", 0)) if isinstance(meta_rec, dict) else 0
+                source_id = meta_rec.get("sourceId", "unknown") if isinstance(meta_rec, dict) else "unknown"
+                chunks_map[cid] = EmbeddedChunk(
+                    chunk=Chunk(id=cid, doc_id=DocId(source_id), order=order, text=text, metadata=meta_rec if isinstance(meta_rec, dict) else {}),
+                    embedding=emb,
+                )
         # Assemble store
         store = cls(dim=dim)
         store._index = index
