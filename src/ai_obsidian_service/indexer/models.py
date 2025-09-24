@@ -1,34 +1,13 @@
-from pydantic import BaseModel
+from __future__ import annotations
 
+from ai_obsidian_service.api.schemas import (
+    AnswerRequest,
+    AnswerResponse,
+    SearchRequest,
+    SearchResponse,
+)
+from ai_obsidian_service.api.schemas import (
+    SearchHitDTO as SearchHit,
+)
 
-class SearchRequest(BaseModel):
-    query: str
-    top_k: int = 8
-
-
-class Citation(BaseModel):
-    doc_path: str
-    chunk_id: str
-    snippet: str
-    span: list[int] | None = None
-
-
-class SearchHit(BaseModel):
-    doc_path: str
-    chunk_id: str
-    score: float
-    preview: str
-
-
-class SearchResponse(BaseModel):
-    hits: list[SearchHit]
-
-
-class AnswerRequest(BaseModel):
-    query: str
-    top_k: int = 8
-
-
-class AnswerResponse(BaseModel):
-    answer: str
-    citations: list[Citation]
+__all__ = ["SearchRequest", "SearchResponse", "AnswerRequest", "AnswerResponse", "SearchHit"]

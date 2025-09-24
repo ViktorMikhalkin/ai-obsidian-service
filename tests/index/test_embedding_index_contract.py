@@ -1,7 +1,7 @@
 import numpy as np
 
 from ai_obsidian_service.core import Chunk, Chunker, Document
-from ai_obsidian_service.domain.models import EmbeddedChunk, SearchHit, SearchResult
+from ai_obsidian_service.domain.models import EmbeddedChunk, Hit, SearchResult
 from ai_obsidian_service.index.embedder import Embedder
 from ai_obsidian_service.index.embedding_index import EmbeddingIndex
 from ai_obsidian_service.index.vector_store import VectorStore
@@ -46,7 +46,7 @@ class MemStore(VectorStore):
         denom = (np.linalg.norm(V, axis=1) * (np.linalg.norm(q) + 1e-12)) + 1e-12
         sims = (V @ q) / denom
         order = np.argsort(-sims)[:top_k]
-        hits = [SearchHit(chunk=self.chunks[i].chunk, score=float(sims[i])) for i in order]
+        hits = [Hit(chunk=self.chunks[i].chunk, score=float(sims[i])) for i in order]
         return SearchResult(query=None, hits=hits)
 
 

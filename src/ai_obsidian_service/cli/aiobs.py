@@ -14,6 +14,17 @@ from ai_obsidian_service.adapters.index.faiss_index import FaissIndex
 from ai_obsidian_service.adapters.parsers import default_parsers
 from ai_obsidian_service.adapters.services.search_service import SearchService
 
+try:
+    import yaml  # type: ignore
+except Exception:  # pragma: no cover
+    yaml = None  # type: ignore
+
+def _yaml_dump(obj: dict) -> str:
+    if yaml is not None:
+        return yaml.safe_dump(obj, sort_keys=False, allow_unicode=True)  # type: ignore[attr-defined]
+    import json as _json
+    return _json.dumps(obj, ensure_ascii=False, indent=2)
+
 app = typer.Typer(help="AI↔Obsidian CLI (unified ports)")
 
 # ---------- small logging helpers ----------

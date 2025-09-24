@@ -1,10 +1,14 @@
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
 from ai_obsidian_service.adapters.parsers.md_parser import MarkdownParser
 from ai_obsidian_service.adapters.services.search_service import SearchService
 from ai_obsidian_service.core import Chunker, DocumentParser
+from ai_obsidian_service.domain.models import EmbeddedChunk, Hit, SearchResult
 from ai_obsidian_service.index.embedder import Embedder
 from ai_obsidian_service.index.embedding_index import EmbeddingIndex
 from ai_obsidian_service.index.vector_store import VectorStore
@@ -13,45 +17,32 @@ from ai_obsidian_service.index.vector_store import VectorStore
 
 class DummyEmbedder(Embedder):
     """Deterministic toy embedder for tests/prototyping."""
-    def embed(self, text: str):
-        import numpy as np
-        # fixed-size 4D vector from hash (deterministic)
-        h = abs(hash(text))
-        return np.array([(h >> (i * 8)) & 0xFF for i in range(4)], dtype=float)
-
+    def embed(self, text: str) -> np.ndarray:
+        # encode length modulo into a tiny vector for determinism
+        v = np.zeros(4, dtype=np.float32)
+        v[:] = (len(text) % 7)
+        return v
 
 class InMemoryVectorStore(VectorStore):
-    """Simple cosine-sim memory store for prototyping and contract tests."""
-    def __init__(self):
-        import numpy as np
-        self._vecs: list[np.ndarray] = []
-        self._chunks = []
+    def __init__(self) -> None:
+        self.rows: list[EmbeddedChunk] = []
 
-    def upsert(self, chunks):
-        for ec in chunks:
-            self._vecs.append(ec.embedding)
-            self._chunks.append(ec)
+    def upsert(self, chunks: list[EmbeddedChunk]) -> None:  # type: ignore[override]
+        self.rows.extend(chunks)
 
-    def search(self, query_vec, top_k: int):
-        import numpy as np
+    def count(self) -> int:
+        return len(self.rows)
 
-        from ai_obsidian_service.domain.models import SearchHit, SearchResult
-
-        if not self._vecs:
-            return SearchResult(query=None, hits=[])
-
-        V = np.stack(self._vecs)  # (N, D)
-        q = query_vec.astype(float)
-        # cosine sim
-        denom = (np.linalg.norm(V, axis=1) * (np.linalg.norm(q) + 1e-12)) + 1e-12
-        sims = (V @ q) / denom
-        idx = np.argsort(-sims)[:top_k].tolist()
-
-        hits = [SearchHit(chunk=self._chunks[i].chunk, score=float(sims[i])) for i in idx]
+    def search(self, query_vec: np.ndarray, top_k: int) -> SearchResult:  # type: ignore[override]
+        # naive scoring by vector[0] closeness to len%7 of chunk text
+        qv = float(query_vec[0])
+        scored: list[tuple[float, EmbeddedChunk]] = []
+        for e in self.rows:
+            s = -abs(len(e.chunk.text) % 7 - qv)
+            scored.append((s, e))
+        scored.sort(key=lambda t: t[0], reverse=True)
+        hits = [Hit(chunk=e.chunk, score=float(s)) for s, e in scored[:top_k]]
         return SearchResult(query=None, hits=hits)
-
-
-# ---- Factories ----
 
 @dataclass(slots=True)
 class Components:
@@ -60,7 +51,6 @@ class Components:
     index: EmbeddingIndex
     parser: DocumentParser
     search: SearchService
-
 
 def make_components(*, chunker: Chunker) -> Components:
     """Wire concrete implementations. Swap here for FAISS/OpenAI/etc."""

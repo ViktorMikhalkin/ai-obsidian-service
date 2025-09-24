@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,7 +17,6 @@ class EmbeddingIndex:
     chunker: Chunker  # delegates splitting to provided chunker
 
     def index_document(self, doc: Document) -> int:
-        """Split, embed, and upsert chunks. Returns # of chunks indexed."""
         chunks: list[Chunk] = list(self.chunker.split(doc))
         if not chunks:
             return 0

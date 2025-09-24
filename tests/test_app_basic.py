@@ -93,7 +93,7 @@ def test_search_minimal_contract(mock_search_service):
             assert isinstance(body["results"], list)
             assert len(body["results"]) == 1
 
-            # Verify the SearchHit structure
+            # Verify the Hit structure
             hit = body["results"][0]
             assert "id" in hit
             assert "path" in hit

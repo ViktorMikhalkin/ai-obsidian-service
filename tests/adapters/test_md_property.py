@@ -1,9 +1,10 @@
-
 import pytest
 
-hypothesis = pytest.importorskip("hypothesis")
-from hypothesis import given
-from hypothesis import strategies as st
+try:
+    from hypothesis import given  # type: ignore
+    from hypothesis import strategies as st
+except Exception:  # pragma: no cover
+    pytest.skip("hypothesis not installed", allow_module_level=True)
 
 from ai_obsidian_service.adapters.parsers.md_parser import MarkdownParser
 
@@ -11,7 +12,6 @@ from ai_obsidian_service.adapters.parsers.md_parser import MarkdownParser
 @given(st.text(min_size=1, max_size=2000))
 def test_md_parser_never_crashes(s: str) -> None:
     p = MarkdownParser()
-    # if parser doesn't have parse_text, fallback to writing a tmp file
     try:
         doc = p.parse_text(s)  # type: ignore[attr-defined]
     except Exception:

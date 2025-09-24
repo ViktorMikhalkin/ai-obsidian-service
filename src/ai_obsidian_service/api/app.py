@@ -1,90 +1,47 @@
+
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from contextlib import asynccontextmanager
-from functools import cast
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 
 from ai_obsidian_service import __version__
+from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
 from ai_obsidian_service.adapters.services.search_service import SearchService
 from ai_obsidian_service.api.errors import install as install_error_stack
-from ai_obsidian_service.config.settings import get_settings
-from ai_obsidian_service.core import Query
-from ai_obsidian_service.di_selector import make_components
-from ai_obsidian_service.index.faiss_store import FaissVectorStore  # for save/load
-from ai_obsidian_service.logging_utils import install_json_logging
-from ai_obsidian_service.simple_chunker import SimpleChunker
-
-from .mappers import ResolveMeta, hit_to_search_hit, hits_to_search_response
-from .schemas import (
-    AnswerRequest,
-    AnswerResponse,
-    IndexRequest,
+from ai_obsidian_service.api.mappers import hits_to_search_response
+from ai_obsidian_service.api.schemas import (
+    InfoSchema,
     SearchRequest,
     SearchResponse,
 )
+from ai_obsidian_service.config.settings import get_settings
+from ai_obsidian_service.core import Query
+from ai_obsidian_service.di_selector import make_components
 
-# ------------------------------------------------------------------------------
-# Settings & logging
-# ------------------------------------------------------------------------------
 
-settings = get_settings()
-
-level = getattr(logging, settings.log_level.upper(), logging.INFO)
-if settings.json_logs_enabled:
-    install_json_logging(
-        level=level,
-        logger_names=["ai_obsidian_service.api.access"],
-        include_uvicorn=settings.log_uvicorn,
-    )
-else:
-    logging.basicConfig(level=level)
-
-# ------------------------------------------------------------------------------
-# App wiring (DI v2) + FAISS persistence via settings.vector_*
-# ------------------------------------------------------------------------------
+def get_search_service_dep(request: Request) -> SearchService:
+    svc: SearchService = request.app.state.components.search
+    return svc
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Assemble components via DI and (optionally) persist FAISS index.
-
-    Settings (env-backed, see config/settings.py):
-      - settings.vector_store_backend: "memory" | "faiss"
-      - settings.st_model_name: SentenceTransformers model name
-      - settings.vector_index_dir: directory for FAISS index (enable load/save)
-    """
-    backend = settings.vector_store_backend.lower()
-    model_name = settings.st_model_name
-    index_dir = settings.vector_index_dir
-
-    # Build components (store may be in-memory or faiss)
-    components = make_components(chunker=SimpleChunker(), backend=backend, model_name=model_name)
-
-    # If faiss + index_dir provided → replace empty store with a loaded one
-    if backend == "faiss" and index_dir:
-        try:
-            loaded_store = FaissVectorStore.load(index_dir, expected_model_name=model_name)
-            components.store = loaded_store
-            components.index.store = loaded_store  # rebind in the facade
-            logging.getLogger("ai_obsidian_service.app").info(
-                "FAISS index loaded",
-                extra={"path": index_dir, "model": model_name},
-            )
-        except FileNotFoundError:
-            # No existing index — start fresh; will save on shutdown
-            logging.getLogger("ai_obsidian_service.app").warning(
-                "FAISS index path not found, starting with an empty store",
-                extra={"path": index_dir, "model": model_name},
-            )
-
+    settings = get_settings()
+    # Build components via DI selector
+    components = make_components(chunker=SimpleChunker())
     app.state.components = components
+    app.state.backend = settings.vector_store_backend
+    app.state.index_dir = settings.vector_index_dir
+    app.state.model_name = settings.st_model_name
     try:
         yield
     finally:
-        # On shutdown: persist FAISS index if configured
+        # Optional: persist FAISS index if used (no-op for memory backend)
+        backend = getattr(app.state, "backend", "memory")
+        index_dir = getattr(app.state, "index_dir", None)
+        model_name = getattr(app.state, "model_name", None)
         if backend == "faiss" and index_dir:
             try:
                 components.store.save(index_dir, model_name=model_name)  # type: ignore[attr-defined]
@@ -92,140 +49,49 @@ async def lifespan(app: FastAPI):
                     "FAISS index saved",
                     extra={"path": index_dir, "model": model_name},
                 )
-            except Exception as e:
+            except Exception as e:  # pragma: no cover
                 logging.getLogger("ai_obsidian_service.app").exception(
                     "Failed to save FAISS index on shutdown",
                     extra={"path": index_dir, "model": model_name, "error": str(e)},
                 )
 
+def create_app() -> FastAPI:
+    settings = get_settings()
+    app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
+    # CORS
+    origins = ["*"]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    # errors and access logs
+    install_error_stack(app)
+    return app
 
-app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
-
-# CORS (config via AIOS_CORS_ORIGINS)
-import os as _os
-
-_origins = [o.strip() for o in _os.getenv("AIOS_CORS_ORIGINS", "*").split(",") if o.strip()]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Unified requestId / access log / error handlers
-install_error_stack(app)
-
-
-def _as_hits(obj):
-    try:
-        return list(obj.hits)
-    except AttributeError:
-        return list(obj)
-
-
-def get_search_service_dep(request: Request) -> SearchService:
-    # DI: retrieve SearchService from app.state (assembled in lifespan)
-    return cast(SearchService, request.app.state.components.search)
-
-# ------------------------------------------------------------------------------
-# Endpoints
-# ------------------------------------------------------------------------------
-
-@app.get("/health")
-def health(_: Request) -> dict:
-    logging.getLogger("ai_obsidian_service.app").info("health ping")
-    return {"ok": True, "errors": []}
-
+app = create_app()
 
 @app.post("/search", response_model=SearchResponse)
-def search(
-        req: SearchRequest, svc: SearchService = Depends(get_search_service_dep)
-) -> SearchResponse:
-    try:
-        result = svc.search_text(req.query, req.top_k)
-        hits = _as_hits(result)
-        return hits_to_search_response(
-            Query(text=req.query, top_k=req.top_k),
-            hits,
-            cast(Callable[..., ResolveMeta], svc.resolve_meta),
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@app.post("/answer", response_model=AnswerResponse)
-def answer(
-        req: AnswerRequest, svc: SearchService = Depends(get_search_service_dep)
-) -> AnswerResponse:
-    try:
-        result = svc.search_text(req.query, req.top_k)
-        hits = _as_hits(result)
-        dto_hits = [
-            hit_to_search_hit(h, cast(Callable[..., ResolveMeta], svc.resolve_meta))
-            for h in hits
-        ]
-        answer_text = " ".join(h.preview for h in dto_hits if h.preview) or "No answer."
-        return AnswerResponse(query=req.query, answer=answer_text, sources=dto_hits)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@app.post("/index")
-def index_file(
-        req: IndexRequest, svc: SearchService = Depends(get_search_service_dep)
-) -> dict:
-    try:
-        n = svc.index_path(req.path)
-        return {"indexed_chunks": n}
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@app.get("/search", response_model=SearchResponse)
-def search_get(
-    q: str,
-    top_k: int = 5,
-    collection: str | None = None,
-    svc: SearchService = Depends(get_search_service_dep),
-) -> SearchResponse:
-    req = SearchRequest(query=q, top_k=top_k, collection=collection)
-    return search(req, svc)
-
+def search(req: SearchRequest, svc: SearchService = Depends(get_search_service_dep)) -> SearchResponse:
+    res = svc.search_text(req.query, top_k=req.top_k, collection=req.collection)
+    return hits_to_search_response(Query(text=req.query, top_k=req.top_k), res.hits, lambda _cid: {})
 
 @app.get("/info", response_model=InfoSchema)
 def info(request: Request) -> InfoSchema:
     components = request.app.state.components
-    backend = getattr(request.app.state, "backend", "faiss")
+    backend = getattr(request.app.state, "backend", "memory")
     index_dir = getattr(request.app.state, "index_dir", None)
-
     embedder = getattr(components.index, "embedder", None)
     store = getattr(components.index, "store", None)
-
-    model = getattr(embedder, "model_name", None)
-    if model is None and hasattr(embedder, "__class__"):
-        model = embedder.__class__.__name__
+    model = getattr(embedder, "model_name", None) or getattr(embedder, "__class__", type("X",(object,),{})).__name__
     dim = getattr(embedder, "dim", None)
-
-    count = None
-    if store is not None and hasattr(store, "count"):
-        try:
-            count = int(store.count())  # type: ignore[arg-type]
-        except Exception:
-            count = None
-
+    count = getattr(store, "count", lambda: None)()
     return InfoSchema(
         backend=backend,
         model=model,
         dim=dim if isinstance(dim, int) else None,
-        count=count,
+        count=count if isinstance(count, int) or count is None else None,
         index_dir=index_dir,
     )

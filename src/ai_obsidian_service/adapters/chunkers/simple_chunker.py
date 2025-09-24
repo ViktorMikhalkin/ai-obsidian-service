@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -15,10 +16,11 @@ def chunk_text(text: str, max_chars: int = 1000, overlap: int = 100) -> list[str
         i += step
     return res
 
+
 class SimpleChunker(Chunker):
     def __init__(self, *, max_chars: int = 1000, overlap: int = 100) -> None:
-        self.max_chars = max_chars
-        self.overlap = overlap
+        self.max_chars = int(max_chars)
+        self.overlap = int(overlap)
 
     def split(self, doc: Document) -> Sequence[Chunk]:
         pieces: list[str] = chunk_text(doc.text or "", self.max_chars, self.overlap)
