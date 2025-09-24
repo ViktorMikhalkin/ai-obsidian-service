@@ -1,10 +1,11 @@
+from ai_obsidian_service.indexer.schemas import SearchHit
+
 from ai_obsidian_service.api.mappers import (
     answer_to_answer_response,
     hit_to_search_hit,
     hits_to_search_response,
 )
 from ai_obsidian_service.domain.models import ChunkId, DocId, Hit, Query
-from ai_obsidian_service.indexer.schemas import SearchHit
 
 
 def _resolve3(doc_id: DocId, chunk_id: ChunkId, order: int):

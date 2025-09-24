@@ -1,0 +1,47 @@
+
+name: CI (CPU, conda-first)
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+
+jobs:
+  test-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up micromamba (conda-first)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: environment.yml
+          environment-name: aiobs-cpu
+          cache-downloads: true
+          cache-environment: true
+          create-args: >-
+            python=3.12
+          condarc: |
+            channel_priority: strict
+
+      - name: Show Python and env
+        run: |
+          which python
+          python -V
+          micromamba info
+          micromamba list
+
+      - name: Run CPU tests (including e2e)
+        env:
+          PYTHONPATH: src
+          AIOS_BM25: "1"
+          AIOS_RERANK_TOPN: "50"
+          AIOS_INDEX_AUTO_CREATE: "1"
+        run: |
+          # Use Makefile with micromamba override
+          make ENV=aiobs-cpu CONDA=micromamba ci-cpu

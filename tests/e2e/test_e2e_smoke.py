@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Iterator, List
+from collections.abc import Iterator
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -23,7 +24,7 @@ def _env_memory(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     yield
 
 
-def _index_files(client: TestClient, paths: List[str]) -> None:
+def _index_files(client: TestClient, paths: list[str]) -> None:
     for p in paths:
         r = client.post("/index", json={"path": p})
         assert r.status_code == 200, r.text

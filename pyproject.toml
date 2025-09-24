@@ -65,7 +65,6 @@ pythonpath = ["src"]
 python_files = ["test_*.py", "*_test.py"]
 python_functions = ["test_*"]
 python_classes = ["Test*"]
-addopts = "-v --tb=short --strict-markers"
 markers = [
     "unit: fast tests with fakes/mocks (default in CI)",
     "integration_cpu: real faiss-cpu + sentence-transformers (no mocks)",

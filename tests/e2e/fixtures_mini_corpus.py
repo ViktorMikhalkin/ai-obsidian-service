@@ -1,6 +1,6 @@
 from __future__ import annotations
+
 from pathlib import Path
-from typing import Iterable, List, Tuple, Optional
 
 import pytest
 
@@ -10,7 +10,7 @@ def _write(p: Path, text: str) -> Path:
     return p
 
 
-def create_md_corpus(root: Path) -> List[Path]:
+def create_md_corpus(root: Path) -> list[Path]:
     """Always-available tiny markdown corpus."""
     docs = []
     docs.append(_write(root / "intro.md", """# Intro
@@ -32,7 +32,7 @@ A: With FAISS + VECTOR_INDEX_DIR on shutdown/startup."""))
     return docs
 
 
-def create_epub_if_possible(root: Path) -> Optional[Path]:
+def create_epub_if_possible(root: Path) -> Path | None:
     """Create minimal EPUB if ebooklib is installed. Otherwise return None."""
     try:
         from ebooklib import epub  # type: ignore
@@ -61,7 +61,7 @@ def create_epub_if_possible(root: Path) -> Optional[Path]:
     return out
 
 
-def create_pdf_if_possible(root: Path) -> Optional[Path]:
+def create_pdf_if_possible(root: Path) -> Path | None:
     """Create minimal PDF if reportlab is installed. Otherwise return None."""
     try:
         from reportlab.pdfgen import canvas  # type: ignore
@@ -76,13 +76,13 @@ def create_pdf_if_possible(root: Path) -> Optional[Path]:
 
 
 @pytest.fixture(scope="function")
-def mini_corpus(tmp_path: Path) -> Tuple[List[Path], List[Path]]:
+def mini_corpus(tmp_path: Path) -> tuple[list[Path], list[Path]]:
     """
     Returns (required_docs, optional_docs). Required are markdown files.
     Optional may include epub/pdf if libs are present.
     """
     required = create_md_corpus(tmp_path)
-    optional: List[Path] = []
+    optional: list[Path] = []
     e = create_epub_if_possible(tmp_path)
     if e:
         optional.append(e)

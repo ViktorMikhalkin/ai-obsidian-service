@@ -191,3 +191,54 @@ def status() -> None:
 
 if __name__ == "__main__":
     app()
+
+
+@app.command()
+def index(dir: str, server: str = "http://127.0.0.1:8000") -> None:
+    """Trigger /index/rebuild for DIR."""
+    import json as _json
+    from urllib.parse import urlencode
+    from urllib.request import Request, urlopen
+    url = f"{server.rstrip('/')}/index/rebuild?" + urlencode({"root": dir})
+    req = Request(url, method="POST")
+    with urlopen(req) as resp:
+        data = resp.read().decode("utf-8")
+    try:
+        obj = _json.loads(data)
+        typer.echo(_yaml_dump(obj))
+    except Exception:
+        typer.echo(data)
+
+
+@app.command()
+def search(query: str, top_k: int = 5, collection: str | None = None, server: str = "http://127.0.0.1:8000") -> None:
+    """Call /search and print results."""
+    import json as _json
+    from urllib.request import Request, urlopen
+    body = {"query": query, "top_k": int(top_k)}
+    if collection:
+        body["collection"] = collection
+    data = _json.dumps(body).encode("utf-8")
+    req = Request(f"{server.rstrip('/')}/search", method="POST", headers={"Content-Type": "application/json"}, data=data)
+    with urlopen(req) as resp:
+        out = resp.read().decode("utf-8")
+    try:
+        obj = _json.loads(out)
+        typer.echo(_yaml_dump(obj))
+    except Exception:
+        typer.echo(out)
+
+
+@app.command()
+def info(server: str = "http://127.0.0.1:8000") -> None:
+    """Print /info manifest."""
+    import json as _json
+    from urllib.request import urlopen
+    url = f"{server.rstrip('/')}/info"
+    with urlopen(url) as resp:
+        out = resp.read().decode("utf-8")
+    try:
+        obj = _json.loads(out)
+        typer.echo(_yaml_dump(obj))
+    except Exception:
+        typer.echo(out)

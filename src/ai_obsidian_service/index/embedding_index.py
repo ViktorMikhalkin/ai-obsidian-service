@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
-import numpy as np
 
-from ai_obsidian_service.core import Document, Chunker, Chunk
+from ai_obsidian_service.core import Chunk, Chunker, Document
+from ai_obsidian_service.domain.models import EmbeddedChunk, Query, SearchResult
 from ai_obsidian_service.index.embedder import Embedder
 from ai_obsidian_service.index.vector_store import VectorStore
-from ai_obsidian_service.domain.models import EmbeddedChunk, SearchResult, Query
 
 
 @dataclass(slots=True)

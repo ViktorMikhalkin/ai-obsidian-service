@@ -5,6 +5,7 @@ import contextvars
 import datetime
 import json
 import logging
+import os
 from collections.abc import Iterable, Sequence
 from typing import Any
 
@@ -118,6 +119,11 @@ def install_json_logging(
       (тест явно проверяет наличие форматтера на самих uvicorn.* логгерах).
     """
     # Root handler
+    level_name = os.getenv("AIOS_LOG_LEVEL", "").upper()
+    if level is None and level_name:
+        level = getattr(logging, level_name, logging.INFO)
+    if level is None:
+        level = logging.INFO
     root = logging.getLogger()
     root.setLevel(level)
     root.handlers.clear()

@@ -1,20 +1,15 @@
+
 import pytest
 
-try:
-    from hypothesis import given
-    from hypothesis import strategies as st
-except Exception:
-    pytest.skip("hypothesis not installed", allow_module_level=True)
+hypothesis = pytest.importorskip("hypothesis")
+from hypothesis import given
+from hypothesis import strategies as st
 
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
 from ai_obsidian_service.core import DocId, Document
 
 
-@given(
-    st.text(min_size=1, max_size=2000),
-    st.integers(min_value=50, max_value=400),
-    st.integers(min_value=0, max_value=50),
-)
+@given(st.text(min_size=1, max_size=2000), st.integers(min_value=50, max_value=400), st.integers(min_value=0, max_value=50))
 def test_chunk_boundaries_monotonic(s: str, max_chars: int, overlap: int) -> None:
     ch = SimpleChunker(max_chars=max_chars, overlap=overlap)
     doc = Document(id=DocId("X"), path="X", mime="text/markdown", text=s, metadata={})

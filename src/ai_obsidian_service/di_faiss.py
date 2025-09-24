@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ai_obsidian_service.core import Chunker
 from ai_obsidian_service.adapters.parsers.md_parser import MarkdownParser
-from ai_obsidian_service.index.embedding_index import EmbeddingIndex
-from ai_obsidian_service.index.embedder_sentence_transformers import SentenceTransformersEmbedder
-from ai_obsidian_service.index.faiss_store import FaissVectorStore
 from ai_obsidian_service.adapters.services.search_service import SearchService
+from ai_obsidian_service.core import Chunker
+from ai_obsidian_service.index.embedder_sentence_transformers import (
+    SentenceTransformersEmbedder,
+)
+from ai_obsidian_service.index.embedding_index import EmbeddingIndex
+from ai_obsidian_service.index.faiss_store import FaissVectorStore
 
 
 @dataclass(slots=True)

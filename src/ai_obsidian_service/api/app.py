@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from functools import cast
-from typing import Callable
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
@@ -13,12 +13,18 @@ from ai_obsidian_service.api.errors import install as install_error_stack
 from ai_obsidian_service.config.settings import get_settings
 from ai_obsidian_service.core import Query
 from ai_obsidian_service.di_selector import make_components
+from ai_obsidian_service.index.faiss_store import FaissVectorStore  # for save/load
 from ai_obsidian_service.logging_utils import install_json_logging
 from ai_obsidian_service.simple_chunker import SimpleChunker
-from ai_obsidian_service.index.faiss_store import FaissVectorStore  # for save/load
 
 from .mappers import ResolveMeta, hit_to_search_hit, hits_to_search_response
-from .schemas import AnswerRequest, AnswerResponse, SearchRequest, SearchResponse, IndexRequest
+from .schemas import (
+    AnswerRequest,
+    AnswerResponse,
+    IndexRequest,
+    SearchRequest,
+    SearchResponse,
+)
 
 # ------------------------------------------------------------------------------
 # Settings & logging
@@ -95,6 +101,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
 
+# CORS (config via AIOS_CORS_ORIGINS)
+import os as _os
+
+_origins = [o.strip() for o in _os.getenv("AIOS_CORS_ORIGINS", "*").split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Unified requestId / access log / error handlers
 install_error_stack(app)
 
@@ -170,3 +188,44 @@ def index_file(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/search", response_model=SearchResponse)
+def search_get(
+    q: str,
+    top_k: int = 5,
+    collection: str | None = None,
+    svc: SearchService = Depends(get_search_service_dep),
+) -> SearchResponse:
+    req = SearchRequest(query=q, top_k=top_k, collection=collection)
+    return search(req, svc)
+
+
+@app.get("/info", response_model=InfoSchema)
+def info(request: Request) -> InfoSchema:
+    components = request.app.state.components
+    backend = getattr(request.app.state, "backend", "faiss")
+    index_dir = getattr(request.app.state, "index_dir", None)
+
+    embedder = getattr(components.index, "embedder", None)
+    store = getattr(components.index, "store", None)
+
+    model = getattr(embedder, "model_name", None)
+    if model is None and hasattr(embedder, "__class__"):
+        model = embedder.__class__.__name__
+    dim = getattr(embedder, "dim", None)
+
+    count = None
+    if store is not None and hasattr(store, "count"):
+        try:
+            count = int(store.count())  # type: ignore[arg-type]
+        except Exception:
+            count = None
+
+    return InfoSchema(
+        backend=backend,
+        model=model,
+        dim=dim if isinstance(dim, int) else None,
+        count=count,
+        index_dir=index_dir,
+    )
