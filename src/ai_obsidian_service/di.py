@@ -1,66 +1,72 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
 
-from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
-from ai_obsidian_service.adapters.parsers import all_parsers
+from ai_obsidian_service.core import DocumentParser, Chunker
+from ai_obsidian_service.adapters.parsers.md_parser import MarkdownParser
+from ai_obsidian_service.index.embedding_index import EmbeddingIndex
+from ai_obsidian_service.index.embedder import Embedder
+from ai_obsidian_service.index.vector_store import VectorStore
 from ai_obsidian_service.adapters.services.search_service import SearchService
-from ai_obsidian_service.di_selector import make_components as _base_make_components
 
+
+# ---- Example concrete implementations (replace with your real ones) ----
+
+class DummyEmbedder(Embedder):
+    """Deterministic toy embedder for tests/prototyping."""
+    def embed(self, text: str):
+        import numpy as np
+        # fixed-size 4D vector from hash (deterministic)
+        h = abs(hash(text))
+        return np.array([(h >> (i * 8)) & 0xFF for i in range(4)], dtype=float)
+
+
+class InMemoryVectorStore(VectorStore):
+    """Simple cosine-sim memory store for prototyping and contract tests."""
+    def __init__(self):
+        import numpy as np
+        self._vecs: list[np.ndarray] = []
+        self._chunks = []
+
+    def upsert(self, chunks):
+        for ec in chunks:
+            self._vecs.append(ec.embedding)
+            self._chunks.append(ec)
+
+    def search(self, query_vec, top_k: int):
+        import numpy as np
+        from ai_obsidian_service.domain.models import SearchHit, SearchResult
+
+        if not self._vecs:
+            return SearchResult(query=None, hits=[])
+
+        V = np.stack(self._vecs)  # (N, D)
+        q = query_vec.astype(float)
+        # cosine sim
+        denom = (np.linalg.norm(V, axis=1) * (np.linalg.norm(q) + 1e-12)) + 1e-12
+        sims = (V @ q) / denom
+        idx = np.argsort(-sims)[:top_k].tolist()
+
+        hits = [SearchHit(chunk=self._chunks[i].chunk, score=float(sims[i])) for i in idx]
+        return SearchResult(query=None, hits=hits)
+
+
+# ---- Factories ----
 
 @dataclass(slots=True)
 class Components:
-    """
-    Unified DI bundle used by the app:
-      - embedder / store / index are produced by the base selector (env-driven)
-      - search is the SearchService bound to the chosen backend
-      - parsers is the full, equal-footing set (MD + PDF + EPUB)
-    """
-
-    embedder: Any
-    store: Any
-    index: Any
+    embedder: Embedder
+    store: VectorStore
+    index: EmbeddingIndex
+    parser: DocumentParser
     search: SearchService
-    parsers: Sequence[Any]
 
 
-def make_components(*, chunker: SimpleChunker | None = None) -> Components:
-    """
-    Build components using the existing env-driven selector, but
-    attach ALL parsers (Markdown + PDF + EPUB) to SearchService.
-
-    This keeps the selector logic (FAISS/memory, device, etc.) intact,
-    and only augments the service with a multi-parser setup.
-    """
-    # 1) Build the base set (embedder, store, index, search) via the existing selector
-    base = _base_make_components(
-        chunker=chunker or SimpleChunker(max_chars=1000, overlap=100)
-    )
-
-    # 2) Equal-footing parser set
-    parsers = all_parsers()  # [MarkdownParser(), PdfParser(), EpubParser()]
-
-    # 3) Inject parsers into the SearchService (supporting multiple shapes for backward-compat)
-    search: SearchService = base.search
-    if hasattr(search, "parsers"):
-        # Newer API: explicit .parsers
-        search.parsers = parsers
-    elif hasattr(search, "set_parsers"):
-        # Alternative API: setter
-        search.set_parsers(parsers)
-    else:
-        # Fallback for very old single-parser API
-        try:
-            search.parser = parsers[0]  # type: ignore[attr-defined]
-        except Exception:
-            pass
-
-    return Components(
-        embedder=base.embedder,
-        store=base.store,
-        index=base.index,
-        search=search,
-        parsers=parsers,
-    )
+def make_components(*, chunker: Chunker) -> Components:
+    """Wire concrete implementations. Swap here for FAISS/OpenAI/etc."""
+    embedder = DummyEmbedder()
+    store = InMemoryVectorStore()
+    parser = MarkdownParser()
+    index = EmbeddingIndex(embedder=embedder, store=store, chunker=chunker)
+    search = SearchService(index=index, parser=parser)
+    return Components(embedder=embedder, store=store, index=index, parser=parser, search=search)

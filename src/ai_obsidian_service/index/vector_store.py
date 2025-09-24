@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
-
+from typing import Sequence
 import numpy as np
 
+from ai_obsidian_service.core import Chunk
 from ai_obsidian_service.domain.models import EmbeddedChunk, SearchResult
 
 
