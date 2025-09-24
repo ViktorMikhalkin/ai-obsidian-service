@@ -3,8 +3,8 @@ import pytest
 
 faiss = pytest.importorskip("faiss")  # skip entire module if FAISS is not available
 
-from ai_obsidian_service.domain.models import EmbeddedChunk
 from ai_obsidian_service.core import Chunk
+from ai_obsidian_service.domain.models import EmbeddedChunk
 from ai_obsidian_service.index.faiss_store import FaissVectorStore
 
 

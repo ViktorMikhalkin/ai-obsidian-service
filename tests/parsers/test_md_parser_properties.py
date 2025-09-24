@@ -1,7 +1,7 @@
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from ai_obsidian_service.adapters.parsers.md_parser import parse_markdown
-
 
 text_no_ctrl = st.text(alphabet=st.characters(blacklist_categories=("Cc",)), min_size=0, max_size=200)
 

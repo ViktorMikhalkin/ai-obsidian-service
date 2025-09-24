@@ -3,7 +3,7 @@ import pytest
 
 faiss = pytest.importorskip("faiss")  # skip if FAISS not installed
 
-from ai_obsidian_service.core import Document, Chunker, Chunk
+from ai_obsidian_service.core import Chunk, Chunker, Document
 from ai_obsidian_service.di_faiss import make_components
 
 

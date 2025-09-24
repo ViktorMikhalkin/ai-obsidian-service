@@ -201,3 +201,11 @@ quality-all-envs:
 # --- Environment-specific development ---
 dev-gpu:
 	@echo
+
+test-cpu:
+	@echo "Running CPU-only tests (skip gpu marker)..."
+	$(CONDA) run -n $(ENV) pytest -m "not gpu" -v
+
+ci-cpu: lint typecheck test-cpu
+	@echo "CI CPU suite finished."
+

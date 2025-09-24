@@ -1,15 +1,35 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Sequence, Any
-import json
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
+
+
+def _default_tmp_index_dir() -> str:
+    root = os.path.join(tempfile.gettempdir(), "ai-obsidian-service", "faiss")
+    return root
+
+def _ensure_dir(p: str | Path) -> None:
+    auto = os.getenv("AIOS_INDEX_AUTO_CREATE", "1").lower() not in ("0", "false", "no")
+    if not auto:
+        # do not auto-create; just check existence
+        if not Path(p).exists():
+            raise RuntimeError(f"Index directory does not exist: {p}")
+        return
+    try:
+        Path(p).mkdir(parents=True, exist_ok=True)
+    except PermissionError as e:
+        raise RuntimeError(f"Cannot create index_dir {p}: {e}") from e
+
+
+import json
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
-from ai_obsidian_service.domain.models import EmbeddedChunk, SearchResult, SearchHit
+from ai_obsidian_service.domain.models import EmbeddedChunk, SearchHit, SearchResult
 from ai_obsidian_service.index.vector_store import VectorStore
 
 try:
@@ -39,9 +59,9 @@ class FaissVectorStore(VectorStore):
     """
 
     dim: int | None = None
-    _index: "faiss.Index" | None = field(default=None, init=False, repr=False)
-    _ids: List[str] = field(default_factory=list, init=False, repr=False)
-    _chunks: Dict[str, EmbeddedChunk] = field(default_factory=dict, init=False, repr=False)
+    _index: faiss.Index | None = field(default=None, init=False, repr=False)
+    _ids: list[str] = field(default_factory=list, init=False, repr=False)
+    _chunks: dict[str, EmbeddedChunk] = field(default_factory=dict, init=False, repr=False)
 
     # -------- lifecycle --------
 
@@ -69,12 +89,12 @@ class FaissVectorStore(VectorStore):
         self._ensure_index(int(first_vec.shape[0]))
 
         # Separate additions vs updates
-        to_add_vecs: List[np.ndarray] = []
-        to_add_ids: List[str] = []
+        to_add_vecs: list[np.ndarray] = []
+        to_add_ids: list[str] = []
 
         updated_ids_set: set[str] = set()
-        updated_vecs: List[np.ndarray] = []
-        updated_ids: List[str] = []
+        updated_vecs: list[np.ndarray] = []
+        updated_ids: list[str] = []
 
         for ec in chunks:
             cid = ec.chunk.id
@@ -92,8 +112,8 @@ class FaissVectorStore(VectorStore):
         # Apply updates by rebuilding (flat index is cheap enough to rebuild for moderate sizes)
         if updated_ids_set:
             assert self._index is not None
-            survivor_ids: List[str] = []
-            survivor_vecs: List[np.ndarray] = []
+            survivor_ids: list[str] = []
+            survivor_vecs: list[np.ndarray] = []
 
             for cid in self._ids:
                 if cid not in updated_ids_set:
@@ -131,7 +151,7 @@ class FaissVectorStore(VectorStore):
         scores, idxs = self._index.search(Q, k=min(top_k, len(self._ids)))
         ids = [self._ids[i] for i in idxs[0] if i != -1]
 
-        hits: List[SearchHit] = []
+        hits: list[SearchHit] = []
         for i, cid in enumerate(ids):
             ec = self._chunks[cid]
             hits.append(SearchHit(chunk=ec.chunk, score=float(scores[0][i])))
@@ -199,7 +219,7 @@ class FaissVectorStore(VectorStore):
             raise ValueError(f"Unsupported index version: {version}")
 
         dim = int(meta["dim"])
-        ids: List[str] = list(meta["ids"])
+        ids: list[str] = list(meta["ids"])
         count = int(meta["count"])
         model_name = meta.get("model_name")
 
@@ -239,9 +259,9 @@ class FaissVectorStore(VectorStore):
         if not chunks_path.exists():
             raise FileNotFoundError(f"Missing chunks metadata: {chunks_path}")
 
-        chunks_map: Dict[str, EmbeddedChunk] = {}
+        chunks_map: dict[str, EmbeddedChunk] = {}
         with chunks_path.open("r", encoding="utf-8") as f:
-            for i, line in enumerate(f):
+            for _i, line in enumerate(f):
                 if not line.strip():
                     continue
                 rec = json.loads(line)
@@ -253,7 +273,9 @@ class FaissVectorStore(VectorStore):
                     pos = ids.index(cid)
                 except ValueError:
                     raise ValueError(f"chunks.jsonl id '{cid}' not found in ids list")
-                from ai_obsidian_service.core import Chunk  # local import to avoid cycles
+                from ai_obsidian_service.core import (
+                    Chunk,  # local import to avoid cycles
+                )
                 emb = V[pos, :]
                 chunks_map[cid] = EmbeddedChunk(chunk=Chunk(id=cid, text=text, meta=meta_rec), embedding=emb)
 
@@ -276,7 +298,7 @@ def _atomic_write_json(path: Path, obj: Any) -> None:
     tmp_path.replace(path)
 
 
-def _atomic_write_faiss(path: Path, index: "faiss.Index | None") -> None:
+def _atomic_write_faiss(path: Path, index: faiss.Index | None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     # For empty store, still write an empty index container for consistency
     idx = index or faiss.IndexFlatIP(0)

@@ -1,13 +1,15 @@
 from __future__ import annotations
-from pydantic import BaseModel, Field
-from typing import Any, List, Dict, Optional
 
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 # ---- Requests ----
 
 class SearchRequest(BaseModel):
     query: str = Field(..., description="User query text.")
     top_k: int = Field(5, ge=1, le=50, description="Number of results to return.")
+    collection: str | None = Field(None, description="Optional collection (folder) to filter results.")
 
 
 class AnswerRequest(BaseModel):
@@ -25,17 +27,25 @@ class SearchHitDTO(BaseModel):
     id: str
     score: float
     text: str
-    preview: Optional[str] = None
-    meta: Dict[str, Any] = Field(default_factory=dict)
+    preview: str | None = None
+    meta: dict[str, Any] = Field(default_factory=dict)
 
 
 class SearchResponse(BaseModel):
     query: str
     top_k: int
-    hits: List[SearchHitDTO]
+    hits: list[SearchHitDTO]
 
 
 class AnswerResponse(BaseModel):
     query: str
     answer: str
-    sources: List[SearchHitDTO]
+    sources: list[SearchHitDTO]
+
+
+class InfoSchema(BaseModel):
+    backend: str
+    model: str | None = None
+    dim: int | None = None
+    count: int | None = None
+    index_dir: str | None = None

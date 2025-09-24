@@ -1,11 +1,12 @@
 import json
 from pathlib import Path
+
 import numpy as np
 import pytest
 
-from ai_obsidian_service.index.faiss_store import FaissVectorStore
-from ai_obsidian_service.domain.models import EmbeddedChunk
 from ai_obsidian_service.core import Chunk
+from ai_obsidian_service.domain.models import EmbeddedChunk
+from ai_obsidian_service.index.faiss_store import FaissVectorStore
 
 
 def _vec(x):

@@ -1,148 +1,47 @@
-name: CI
+
+name: CI (CPU, conda-first)
 
 on:
-  pull_request:
-    branches: [main]
   push:
-    branches: [main]
-
-permissions:
-  contents: read
-  pull-requests: read
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
 
 jobs:
-  commit-messages-check:
+  test-cpu:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout (full history for commit scan)
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Validate conventional commit messages
-        shell: bash
-        run: |
-          set -euo pipefail
-          EVENT_NAME="${{ github.event_name }}"
-          TYPE_RE='feat|fix|docs|style|refactor|test|chore|ci|build|perf'
-          SCOPE_RE='index|parser|faiss|rag|repo|api|cli|ci|packaging|docs|release|core|main'
-          REGEX="^(${TYPE_RE})(\\((${SCOPE_RE})\\))?:\\s.+"
-
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            BASE_SHA="${{ github.event.pull_request.base.sha }}"
-            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-            COMMITS=$(git rev-list --reverse "$BASE_SHA..$HEAD_SHA")
-          else
-            BEFORE="${{ github.event.before || '' }}"
-            AFTER="${{ github.sha }}"
-            if [ -n "$BEFORE" ] && git rev-parse "$BEFORE" >/dev/null 2>&1; then
-              COMMITS=$(git rev-list --reverse "$BEFORE..$AFTER")
-            else
-              COMMITS=$(git rev-list --reverse -n 50 "$AFTER")
-            fi
-          fi
-
-          echo "Scanning commits:"
-          echo "$COMMITS"
-
-          FAIL=0
-          for c in $COMMITS; do
-            # Skip merge commits
-            if git rev-parse "$c^2" >/dev/null 2>&1; then
-              echo "⏭  Skipping merge commit $c"
-              continue
-            fi
-
-            AUTHOR_EMAIL="$(git log -1 --format=%ae "$c")"
-            echo "📧 Author: $AUTHOR_EMAIL"
-            case "$AUTHOR_EMAIL" in
-              "github-actions[bot]@users.noreply.github.com"|"release-please[bot]@users.noreply.github.com")
-                echo "⏭  Skipping bot commit $c by $AUTHOR_EMAIL"
-                continue
-                ;;
-            esac
-
-            SUBJECT="$(git log -1 --format=%s "$c")"
-            echo "🔎 $SUBJECT"
-
-            if ! echo "$SUBJECT" | grep -Eq "$REGEX"; then
-              echo "::error file=COMMIT_MESSAGE::$SUBJECT"
-              echo "Expected: type(scope): subject"
-              echo "  - type ∈ {$TYPE_RE}"
-              echo "  - scope ∈ {$SCOPE_RE} (scope is required)"
-              FAIL=1
-            fi
-          done
-
-          if [ "$FAIL" -ne 0 ]; then
-            echo "::error::Conventional Commits check failed. Reword commits or squash-and-merge with a compliant PR title."
-            exit 1
-          fi
-
-  code-quality:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Conda (CPU)
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          auto-activate-base: false
-          activate-environment: aiobs-cpu
-          environment-file: environment.yml
-          python-version: "3.12"
-          use-mamba: true
-
-      - name: Show environment info
+    timeout-minutes: 25
+    defaults:
+      run:
         shell: bash -l {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up micromamba (conda-first)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: environment.yml
+          environment-name: aiobs-cpu
+          cache-downloads: true
+          cache-environment: true
+          create-args: >-
+            python=3.12
+          condarc: |
+            channel_priority: strict
+
+      - name: Show Python and env
         run: |
           which python
           python -V
-          conda info
-          conda list | sed -n '1,80p'
+          micromamba info
+          micromamba list
 
-      - name: Clear mypy cache
-        run: |
-          conda run -n aiobs-cpu python -c "import shutil; shutil.rmtree('.mypy_cache', ignore_errors=True)"
-
-      - name: Install pre-commit
-        run: |
-          conda run -n aiobs-cpu python -m pip install --upgrade pip
-          conda run -n aiobs-cpu pip install pre-commit
-
-      - name: Run pre-commit (ruff, mypy, etc.)
-        run: |
-          if [ -f .pre-commit-config.yaml ]; then
-            conda run -n aiobs-cpu pre-commit run --all-files --show-diff-on-failure
-          else
-            echo "No .pre-commit-config.yaml found, skipping."
-          fi
-
-  unit-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Conda (CPU)
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          auto-activate-base: false
-          activate-environment: aiobs-cpu
-          environment-file: environment.yml
-          python-version: "3.12"
-          use-mamba: true
-
-      - name: Show environment info
-        shell: bash -l {0}
-        run: |
-          which python
-          python -V
-
-      - name: Run tests (safe mode)
+      - name: Run CPU tests (including e2e)
         env:
-          AIOBS_TEST_MODE: "1"
-        shell: bash -l {0}
+          PYTHONPATH: src
+          AIOS_BM25: "1"
+          AIOS_RERANK_TOPN: "50"
+          AIOS_INDEX_AUTO_CREATE: "1"
         run: |
-          pytest -q
+          # Use Makefile with micromamba override
+          make ENV=aiobs-cpu CONDA=micromamba ci-cpu

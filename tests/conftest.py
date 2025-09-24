@@ -8,7 +8,6 @@ from typing import Any
 
 import pytest
 
-
 # -------------------- helpers: feature detection --------------------
 
 def _has_module(name: str) -> bool:

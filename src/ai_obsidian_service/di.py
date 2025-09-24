@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ai_obsidian_service.core import DocumentParser, Chunker
 from ai_obsidian_service.adapters.parsers.md_parser import MarkdownParser
-from ai_obsidian_service.index.embedding_index import EmbeddingIndex
-from ai_obsidian_service.index.embedder import Embedder
-from ai_obsidian_service.index.vector_store import VectorStore
 from ai_obsidian_service.adapters.services.search_service import SearchService
-
+from ai_obsidian_service.core import Chunker, DocumentParser
+from ai_obsidian_service.index.embedder import Embedder
+from ai_obsidian_service.index.embedding_index import EmbeddingIndex
+from ai_obsidian_service.index.vector_store import VectorStore
 
 # ---- Example concrete implementations (replace with your real ones) ----
 
@@ -35,6 +34,7 @@ class InMemoryVectorStore(VectorStore):
 
     def search(self, query_vec, top_k: int):
         import numpy as np
+
         from ai_obsidian_service.domain.models import SearchHit, SearchResult
 
         if not self._vecs:

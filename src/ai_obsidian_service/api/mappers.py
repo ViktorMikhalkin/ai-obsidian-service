@@ -1,5 +1,7 @@
 from __future__ import annotations
-from typing import Any, Callable, Dict, Iterable, Protocol
+
+from collections.abc import Iterable
+from typing import Any, Protocol
 
 from ai_obsidian_service.api.schemas import SearchHitDTO, SearchResponse
 from ai_obsidian_service.core import Query
@@ -7,7 +9,7 @@ from ai_obsidian_service.domain.models import Hit
 
 
 class ResolveMeta(Protocol):
-    def __call__(self, chunk_id: str) -> Dict[str, Any]: ...
+    def __call__(self, chunk_id: str) -> dict[str, Any]: ...
 
 
 def hit_to_search_hit(hit: Hit, resolve_meta: ResolveMeta) -> SearchHitDTO:
