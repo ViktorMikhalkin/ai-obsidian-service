@@ -69,7 +69,7 @@ def load_config() -> dict:
         f"[config] index_dir={cfg.get('index_dir', 'index')} "
         f"model={emb.get('model')} device={emb.get('device', 'cpu')} "
         f"batch_size={emb.get('batch_size', 64)} dtype={emb.get('dtype', 'fp32')} "
-        f"search_on={emb.get('faiss', {}).get('search_on', 'cpu')}"
+        f"vector_backend={os.getenv('VECTOR_STORE_BACKEND', 'memory')}"
     )
     return cfg
 

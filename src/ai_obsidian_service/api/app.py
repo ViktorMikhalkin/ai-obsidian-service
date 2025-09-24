@@ -1,67 +1,61 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from contextlib import asynccontextmanager
-from functools import lru_cache
-from typing import cast
+from functools import cast
+from typing import Callable
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
 from ai_obsidian_service import __version__
 from ai_obsidian_service.adapters.services.search_service import SearchService
-from ai_obsidian_service.config.container import build_search_service
+from ai_obsidian_service.api.errors import install as install_error_stack
 from ai_obsidian_service.config.settings import get_settings
 from ai_obsidian_service.core import Query
+from ai_obsidian_service.di_selector import make_components
 from ai_obsidian_service.logging_utils import install_json_logging
+from ai_obsidian_service.simple_chunker import SimpleChunker  # <<— ваш Chunker
 
-from .errors import (
-    ensure_request_id_middleware,
-    install_access_logger,
-    install_error_handlers,
-)
 from .mappers import ResolveMeta, hit_to_search_hit, hits_to_search_response
 from .schemas import AnswerRequest, AnswerResponse, SearchRequest, SearchResponse
 
+# ------------------------------------------------------------------------------
+# Settings & logging
+# ------------------------------------------------------------------------------
+
 settings = get_settings()
 
-# Configure logging once (JSON + MDC filter)
 level = getattr(logging, settings.log_level.upper(), logging.INFO)
 if settings.json_logs_enabled:
-    # Single entry point: enable JSON logging + requestId on root (and uvicorn if enabled)
     install_json_logging(
         level=level,
         logger_names=["ai_obsidian_service.api.access"],
         include_uvicorn=settings.log_uvicorn,
-        # optional: extra_keys=["user_id", "corr_id"],  # if you need custom fields
     )
 else:
-    # Fallback: plain logging without JSON
     logging.basicConfig(level=level)
 
-
-@lru_cache(maxsize=1)
-def get_search_service() -> SearchService:
-    index_dir = settings.index_dir
-    return build_search_service(index_dir=index_dir)
-
+# ------------------------------------------------------------------------------
+# App wiring (DI v2)
+# ------------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    svc = get_search_service()
+    # Select backend via env:
+    #   VECTOR_STORE_BACKEND = "memory" | "faiss"
+    #   ST_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+    app.state.components = make_components(chunker=SimpleChunker())
     try:
         yield
     finally:
-        try:
-            svc.shutdown()
-        except Exception:
-            pass
+        # place for graceful shutdown if needed (eg. store.flush())
+        pass
 
 
 app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
-ensure_request_id_middleware(app)
-install_access_logger(app)
-install_error_handlers(app)
+
+# unified requestId/handlers/access log are installed in one place
+install_error_stack(app)
 
 
 def _as_hits(obj):
@@ -71,15 +65,23 @@ def _as_hits(obj):
         return list(obj)
 
 
+def get_search_service_dep(request: Request) -> SearchService:
+    # DI: retrieve SearchService from app.state (assembled in lifespan)
+    return cast(SearchService, request.app.state.components.search)
+
+# ------------------------------------------------------------------------------
+# Endpoints
+# ------------------------------------------------------------------------------
+
 @app.get("/health")
-def health(request: Request):
+def health(_: Request):
     logging.getLogger("ai_obsidian_service.app").info("health ping")
     return {"ok": True, "errors": []}
 
 
 @app.post("/search", response_model=SearchResponse)
 def search(
-    req: SearchRequest, svc: SearchService = Depends(get_search_service)
+        req: SearchRequest, svc: SearchService = Depends(get_search_service_dep)
 ) -> SearchResponse:
     try:
         result = svc.search_text(req.query, req.top_k)
@@ -97,7 +99,7 @@ def search(
 
 @app.post("/answer", response_model=AnswerResponse)
 def answer(
-    req: AnswerRequest, svc: SearchService = Depends(get_search_service)
+        req: AnswerRequest, svc: SearchService = Depends(get_search_service_dep)
 ) -> AnswerResponse:
     try:
         result = svc.search_text(req.query, req.top_k)
