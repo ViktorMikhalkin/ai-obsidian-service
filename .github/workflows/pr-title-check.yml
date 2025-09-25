@@ -1,4 +1,4 @@
-name: PR Title Check
+name: PR Title (Conventional Commits)
 
 on:
   pull_request_target:
@@ -8,8 +8,7 @@ permissions:
   pull-requests: read
 
 jobs:
-  validate-title:
-    name: Conventional Commits
+  check:
     runs-on: ubuntu-latest
     steps:
       - name: Validate PR title
