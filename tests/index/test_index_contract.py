@@ -1,24 +1,18 @@
-# tests/index/test_index_contract.py
-from __future__ import annotations
 
-from ai_obsidian_service.domain.models import Query
+from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
+from ai_obsidian_service.core import DocId, Document
+from ai_obsidian_service.di import make_components
 
 
-def test_empty_index_search_returns_empty(empty_search_service):
-    """
-    With an empty index, search should return no hits.
-    Uses the special empty_search_service fixture (no indexing performed).
-    """
-    res = empty_search_service.search_text("anything", top_k=5)
+def test_empty_index_search_returns_empty():
+    cmp = make_components(chunker=SimpleChunker(max_chars=32, overlap=8))
+    res = cmp.search.search_text("hello", top_k=5)
     assert res.hits == []
 
-
-def test_search_respects_topk_and_scores(search_service):
-    """
-    On the indexed mini_vault, ensure top_k is respected and scores are present.
-    """
-    q = Query("hello", top_k=1)
-    res = search_service.search_text(q.text, top_k=q.top_k)
-    assert len(res.hits) <= q.top_k
-    for h in res.hits:
-        assert isinstance(h.score, float)
+def test_search_respects_topk_and_scores():
+    cmp = make_components(chunker=SimpleChunker(max_chars=16, overlap=4))
+    cmp.search.index_document(Document(DocId("a.md"), "a.md", "text/markdown", "hello world hello"))
+    cmp.search.index_document(Document(DocId("b.md"), "b.md", "text/markdown", "another hello line"))
+    res = cmp.search.search_text("hello", top_k=3)
+    assert 0 < len(res.hits) <= 3
+    assert all(getattr(h, "score", None) is not None for h in res.hits)

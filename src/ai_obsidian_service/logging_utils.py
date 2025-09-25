@@ -25,7 +25,7 @@ class RequestIdFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
         rid = get_request_id()
         if rid is not None:
-            record.requestId = rid  # type: ignore[attr-defined]
+            record.requestId = rid
         return True
 
 # ------------ JSON logging ------------
