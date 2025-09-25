@@ -1,33 +1,41 @@
-
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ai_obsidian_service.core import Chunk, Chunker, Document
-from ai_obsidian_service.domain.models import EmbeddedChunk, Query, SearchResult
+from ai_obsidian_service.core import Chunker, Document
+from ai_obsidian_service.domain.models import (
+    Chunk,
+    EmbeddedChunk,
+    EmbeddedQuery,
+    Query,
+    SearchResult,
+)
 from ai_obsidian_service.index.embedder import Embedder
 from ai_obsidian_service.index.vector_store import VectorStore
 
 
 @dataclass(slots=True)
 class EmbeddingIndex:
-    """Facade: composes Embedder + VectorStore; owns indexing/search orchestration."""
     embedder: Embedder
     store: VectorStore
-    chunker: Chunker  # delegates splitting to provided chunker
+    chunker: Chunker
+
+    def upsert(self, chunks: Sequence[Chunk]) -> None:
+        if not chunks:
+            return
+        vecs = [self.embedder.embed(c.text) for c in chunks]
+        self.store.upsert([EmbeddedChunk(chunk=c, embedding=v) for c, v in zip(chunks, vecs, strict=False)])
 
     def index_document(self, doc: Document) -> int:
-        chunks: list[Chunk] = list(self.chunker.split(doc))
-        if not chunks:
-            return 0
-        embedded: list[EmbeddedChunk] = [
-            EmbeddedChunk(chunk=c, embedding=self.embedder.embed(c.text)) for c in chunks
-        ]
-        self.store.upsert(embedded)
-        return len(embedded)
+        chunks = list(self.chunker.split(doc))
+        self.upsert(chunks)
+        return len(chunks)
 
-    def search(self, text: str, top_k: int = 5) -> SearchResult:
-        """Embed the text and delegate to store.search."""
-        q = Query(text=text, top_k=top_k)
-        q_vec = self.embedder.embed(q.text)
+    def search(self, embedded_query: EmbeddedQuery | str, top_k: int = 5) -> SearchResult:
+        if isinstance(embedded_query, str):
+            q = Query(text=embedded_query, top_k=top_k)
+            q_vec = self.embedder.embed(q.text)
+        else:
+            q_vec = embedded_query.vector
         return self.store.search(q_vec, top_k=top_k)

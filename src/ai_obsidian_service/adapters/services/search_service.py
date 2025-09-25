@@ -1,8 +1,8 @@
-
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from ai_obsidian_service.core import Document, DocumentParser
 from ai_obsidian_service.domain.models import Hit, SearchResult
@@ -12,11 +12,16 @@ from ai_obsidian_service.rerank.bm25 import BM25Reranker
 
 @dataclass(slots=True)
 class SearchService:
-    """Application service that delegates to EmbeddingIndex and parser."""
     index: EmbeddingIndex
     parser: DocumentParser
     reranker: BM25Reranker | None = None
     rerank_topn: int = 50
+
+    def __init__(self, index: EmbeddingIndex, parser: DocumentParser, reranker: BM25Reranker | None = None, rerank_topn: int = 50, **_: Any) -> None:
+        self.index = index
+        self.parser = parser
+        self.reranker = reranker
+        self.rerank_topn = rerank_topn
 
     def index_document(self, document: Document) -> int:
         return self.index.index_document(document)
@@ -30,17 +35,17 @@ class SearchService:
             return list(hits)
         out: list[Hit] = []
         for h in hits:
-            meta = getattr(h.chunk, "metadata", None) or {}
+            meta = (h.metadata or (h.chunk.metadata if h.chunk else None)) or {}
             if meta.get("collection") == collection:
                 out.append(h)
         return out
 
     def search_text(self, text: str, top_k: int = 5, collection: str | None = None) -> SearchResult:
         candidates_k = max(top_k, self.rerank_topn if self.reranker else top_k)
-        result = self.index.search(text=text, top_k=candidates_k)
+        result = self.index.search(text, top_k=candidates_k)
         hits = self._post_filter_collection(result.hits, collection)
 
-        if self.reranker is not None and hits:
+        if self.reranker and hits:
             pool = hits[: self.rerank_topn]
             reranked = self.reranker.rerank(text, pool)
             rest = [h for h in hits if h not in pool]
@@ -48,3 +53,9 @@ class SearchService:
 
         result.hits = hits[:top_k]
         return result
+
+    def resolve_meta(self, chunk_id: str) -> dict[str, Any]:  # pragma: no cover
+        return {}
+
+    def shutdown(self) -> None:  # pragma: no cover
+        return None

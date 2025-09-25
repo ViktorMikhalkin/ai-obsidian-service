@@ -6,7 +6,7 @@ import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -14,16 +14,18 @@ from ai_obsidian_service.domain.models import EmbeddedChunk, Hit, SearchResult
 from ai_obsidian_service.index.vector_store import VectorStore
 
 try:
-    import faiss  # type: ignore
+    import faiss
 except Exception as e:  # pragma: no cover
     raise RuntimeError(
         "FAISS is required for FaissVectorStore. Install `faiss-cpu` (or `faiss-gpu`)."
     ) from e
 
 
-def _read_json(p: str | Path) -> dict:
+def _read_json(p: str | Path) -> dict[str, Any]:
     import json
-    return json.loads(Path(p).read_text(encoding="utf-8"))
+    # Fix: Cast the result to ensure proper typing
+    result = json.loads(Path(p).read_text(encoding="utf-8"))
+    return cast(dict[str, Any], result)
 
 
 def _default_tmp_index_dir() -> str:

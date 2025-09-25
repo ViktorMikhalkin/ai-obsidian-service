@@ -1,9 +1,10 @@
+
 import pytest
 
 try:
-    from hypothesis import given  # type: ignore
+    from hypothesis import given
     from hypothesis import strategies as st
-except Exception:  # pragma: no cover
+except Exception:
     pytest.skip("hypothesis not installed", allow_module_level=True)
 
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker

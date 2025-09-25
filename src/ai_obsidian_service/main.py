@@ -12,10 +12,15 @@ from ai_obsidian_service.adapters.services.search_service import SearchService
 
 # Expose FastAPI app for tests (and for `uvicorn ai_obsidian_service.main:app` if desired)
 from ai_obsidian_service.api.app import app  # noqa: F401
+
+# NEW: imports for typed search response
+from ai_obsidian_service.api.mappers import hits_to_search_response
+from ai_obsidian_service.api.schemas import SearchResponse
 from ai_obsidian_service.config.container import (
     build_index_corpus,
     build_search_service,
 )
+from ai_obsidian_service.domain.models import Query
 
 
 def _to_plain(obj: Any) -> Any:
@@ -44,6 +49,18 @@ def _to_plain(obj: Any) -> Any:
 
 def _print_json(payload: Any) -> None:
     print(json.dumps(_to_plain(payload), ensure_ascii=False, indent=2))
+
+
+def _print_pydantic(model: SearchResponse) -> None:
+    """Dump a pydantic model (v1 or v2) as pretty JSON."""
+    try:
+        data = model.model_dump()  # pydantic v2
+    except Exception:
+        try:
+            data = model.dict()  # pydantic v1
+        except Exception:
+            data = _to_plain(model)
+    print(json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def _install_sigterm(service: SearchService | None) -> None:
@@ -103,8 +120,15 @@ def cmd_search(args: argparse.Namespace) -> int:
     try:
         _install_sigterm(service)
         result = service.search_text(args.query, top_k=args.top_k)
-        result = service.resolve_meta(result)
-        _print_json(result)
+
+        # Build a typed API response; do NOT assign a dict back to `result`.
+        # Also, pass `resolve_meta` correctly (it expects chunk_id: str).
+        resp: SearchResponse = hits_to_search_response(
+            Query(text=args.query, top_k=args.top_k),
+            result.hits,
+            service.resolve_meta,
+        )
+        _print_pydantic(resp)
         return 0
     finally:
         service.shutdown()

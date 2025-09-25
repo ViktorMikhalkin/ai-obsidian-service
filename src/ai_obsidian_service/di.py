@@ -33,7 +33,7 @@ class InMemoryVectorStore(VectorStore):
     def count(self) -> int:
         return len(self.rows)
 
-    def search(self, query_vec: np.ndarray, top_k: int) -> SearchResult:  # type: ignore[override]
+    def search(self, query_vec: np.ndarray, top_k: int) -> SearchResult:
         # naive scoring by vector[0] closeness to len%7 of chunk text
         qv = float(query_vec[0])
         scored: list[tuple[float, EmbeddedChunk]] = []

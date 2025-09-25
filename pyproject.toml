@@ -59,7 +59,7 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.pytest.ini_options]
-addopts = "-v --tb=short --strict-markers"
+addopts = "-v --tb=short --strict-markers -m 'not integration_cpu and not integration_gpu and not e2e and not faiss'"
 testpaths = ["tests"]
 pythonpath = ["src"]
 python_files = ["test_*.py", "*_test.py"]
@@ -69,10 +69,10 @@ markers = [
     "unit: fast tests with fakes/mocks (default in CI)",
     "integration_cpu: real faiss-cpu + sentence-transformers (no mocks)",
     "integration_gpu: real faiss-gpu + sentence-transformers + CUDA (no mocks)",
-    "requires_faiss: skip if FAISS is unavailable",
-    "requires_st: skip if sentence-transformers is unavailable",
     "e2e: end-to-end tests over a mini corpus",
+    "faiss: tests requiring FAISS & sentence-transformers"
 ]
+
 filterwarnings = [
     "error::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
