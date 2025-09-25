@@ -31,9 +31,7 @@ class EnvironmentValidator:
 
         # Report results
         critical_failures = [c for c in self.checks if not c.passed and c.critical]
-        warnings_count = len(
-            [c for c in self.checks if not c.passed and not c.critical]
-        )
+        warnings_count = len([c for c in self.checks if not c.passed and not c.critical])
 
         if critical_failures:
             print("❌ Critical environment issues detected:")
@@ -47,54 +45,43 @@ class EnvironmentValidator:
                 print(f"  - {check.name}: {check.message}")
 
         passed_count = len([c for c in self.checks if c.passed])
-        print(
-            f"✅ Environment validation passed ({passed_count}/{len(self.checks)} checks)"
-        )
+        print(f"✅ Environment validation passed ({passed_count}/{len(self.checks)} checks)")
         return True
 
     def _check_python_version(self) -> None:
         """Check Python version compatibility."""
         import sys
-
         version = sys.version_info
 
         if version >= (3, 12):
-            self.checks.append(
-                EnvironmentCheck(
-                    name="Python Version",
-                    passed=False,
-                    message=f"Python {version.major}.{version.minor} may have compatibility issues with FAISS. Consider using Python 3.11.",
-                    critical=False,
-                )
-            )
+            self.checks.append(EnvironmentCheck(
+                name="Python Version",
+                passed=False,
+                message=f"Python {version.major}.{version.minor} may have compatibility issues with FAISS. Consider using Python 3.11.",
+                critical=False
+            ))
         elif version < (3, 10):
-            self.checks.append(
-                EnvironmentCheck(
-                    name="Python Version",
-                    passed=False,
-                    message=f"Python {version.major}.{version.minor} is too old. Minimum required: 3.10",
-                    critical=True,
-                )
-            )
+            self.checks.append(EnvironmentCheck(
+                name="Python Version",
+                passed=False,
+                message=f"Python {version.major}.{version.minor} is too old. Minimum required: 3.10",
+                critical=True
+            ))
         else:
-            self.checks.append(
-                EnvironmentCheck(
-                    name="Python Version",
-                    passed=True,
-                    message=f"Python {version.major}.{version.minor} is compatible",
-                )
-            )
+            self.checks.append(EnvironmentCheck(
+                name="Python Version",
+                passed=True,
+                message=f"Python {version.major}.{version.minor} is compatible"
+            ))
 
     def _check_faiss_compatibility(self) -> None:
         """Check FAISS version and basic functionality."""
         try:
             import faiss
-
             version = faiss.__version__
 
             # Test basic functionality
             import numpy as np
-
             test_index = faiss.IndexFlatIP(3)
             test_data = np.array([[1, 0, 0]], dtype=np.float32)
             test_index.add(test_data)
@@ -102,101 +89,81 @@ class EnvironmentValidator:
 
             # Check for known problematic versions
             if version.startswith("1.9."):
-                self.checks.append(
-                    EnvironmentCheck(
-                        name="FAISS Version",
-                        passed=False,
-                        message=f"FAISS {version} has known segmentation fault issues. Use 1.8.0.",
-                        critical=True,
-                    )
-                )
+                self.checks.append(EnvironmentCheck(
+                    name="FAISS Version",
+                    passed=False,
+                    message=f"FAISS {version} has known segmentation fault issues. Use 1.8.0.",
+                    critical=True
+                ))
             else:
-                self.checks.append(
-                    EnvironmentCheck(
-                        name="FAISS Version",
-                        passed=True,
-                        message=f"FAISS {version} is working correctly",
-                    )
-                )
+                self.checks.append(EnvironmentCheck(
+                    name="FAISS Version",
+                    passed=True,
+                    message=f"FAISS {version} is working correctly"
+                ))
 
         except ImportError:
-            self.checks.append(
-                EnvironmentCheck(
-                    name="FAISS Availability",
-                    passed=False,
-                    message="FAISS not installed. Install faiss-cpu>=1.8.0,<1.9.0",
-                    critical=True,
-                )
-            )
+            self.checks.append(EnvironmentCheck(
+                name="FAISS Availability",
+                passed=False,
+                message="FAISS not installed. Install faiss-cpu>=1.8.0,<1.9.0",
+                critical=True
+            ))
         except Exception as e:
-            self.checks.append(
-                EnvironmentCheck(
-                    name="FAISS Functionality",
-                    passed=False,
-                    message=f"FAISS test failed: {e}",
-                    critical=True,
-                )
-            )
+            self.checks.append(EnvironmentCheck(
+                name="FAISS Functionality",
+                passed=False,
+                message=f"FAISS test failed: {e}",
+                critical=True
+            ))
 
     def _check_numpy_compatibility(self) -> None:
         """Check numpy version compatibility."""
         try:
             import numpy as np
-
             version = np.__version__
 
             if version.startswith("2."):
-                self.checks.append(
-                    EnvironmentCheck(
-                        name="NumPy Version",
-                        passed=False,
-                        message=f"NumPy {version} (v2.x) may have compatibility issues. Use 1.24-1.26.",
-                        critical=False,
-                    )
-                )
+                self.checks.append(EnvironmentCheck(
+                    name="NumPy Version",
+                    passed=False,
+                    message=f"NumPy {version} (v2.x) may have compatibility issues. Use 1.24-1.26.",
+                    critical=False
+                ))
             else:
-                self.checks.append(
-                    EnvironmentCheck(
-                        name="NumPy Version",
-                        passed=True,
-                        message=f"NumPy {version} is compatible",
-                    )
-                )
+                self.checks.append(EnvironmentCheck(
+                    name="NumPy Version",
+                    passed=True,
+                    message=f"NumPy {version} is compatible"
+                ))
 
         except ImportError:
-            self.checks.append(
-                EnvironmentCheck(
-                    name="NumPy Availability",
-                    passed=False,
-                    message="NumPy not available",
-                    critical=True,
-                )
-            )
+            self.checks.append(EnvironmentCheck(
+                name="NumPy Availability",
+                passed=False,
+                message="NumPy not available",
+                critical=True
+            ))
 
     def _check_torch_compatibility(self) -> None:
         """Check PyTorch compatibility."""
         try:
             import torch
-
             version = torch.__version__
 
-            self.checks.append(
-                EnvironmentCheck(
-                    name="PyTorch Version",
-                    passed=True,
-                    message=f"PyTorch {version} is available",
-                )
-            )
+            self.checks.append(EnvironmentCheck(
+                name="PyTorch Version",
+                passed=True,
+                message=f"PyTorch {version} is available"
+            ))
 
         except ImportError:
-            self.checks.append(
-                EnvironmentCheck(
-                    name="PyTorch Availability",
-                    passed=False,
-                    message="PyTorch not available",
-                    critical=True,
-                )
-            )
+            self.checks.append(EnvironmentCheck(
+                name="PyTorch Availability",
+                passed=False,
+                message="PyTorch not available",
+                critical=True
+            ))
 
     def _check_platform_compatibility(self) -> None:
         """Check platform-specific issues."""
@@ -205,22 +172,18 @@ class EnvironmentValidator:
 
         if system == "Linux" and machine == "x86_64":
             # Known good platform
-            self.checks.append(
-                EnvironmentCheck(
-                    name="Platform Compatibility",
-                    passed=True,
-                    message=f"{system} {machine} is well supported",
-                )
-            )
+            self.checks.append(EnvironmentCheck(
+                name="Platform Compatibility",
+                passed=True,
+                message=f"{system} {machine} is well supported"
+            ))
         else:
-            self.checks.append(
-                EnvironmentCheck(
-                    name="Platform Compatibility",
-                    passed=True,
-                    message=f"{system} {machine} - compatibility not verified",
-                    critical=False,
-                )
-            )
+            self.checks.append(EnvironmentCheck(
+                name="Platform Compatibility",
+                passed=True,
+                message=f"{system} {machine} - compatibility not verified",
+                critical=False
+            ))
 
 
 def validate_environment() -> bool:
@@ -233,10 +196,7 @@ def require_environment() -> None:
     """Validate environment and exit if critical issues found."""
     if not validate_environment():
         import sys
-
-        print(
-            "\n🛑 Environment validation failed. Please fix critical issues before proceeding."
-        )
+        print("\n🛑 Environment validation failed. Please fix critical issues before proceeding.")
         sys.exit(1)
 
 
@@ -263,5 +223,4 @@ if __name__ != "__main__":
 if __name__ == "__main__":
     # CLI usage: python -m ai_obsidian_service.core.environment
     import sys
-
     sys.exit(0 if validate_environment() else 1)

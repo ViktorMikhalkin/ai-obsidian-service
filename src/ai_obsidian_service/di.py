@@ -38,8 +38,10 @@ class InMemoryVectorStore(VectorStore):
         qv = float(query_vec[0])
         scored: list[tuple[float, EmbeddedChunk]] = []
         for e in self.rows:
-            s = -abs(len(e.chunk.text) % 7 - qv)
-            scored.append((s, e))
+            # Use inverse distance for positive score
+            distance = abs(len(e.chunk.text) % 7 - qv)
+            score = 1.0 / (1.0 + distance)  # Чем меньше distance, тем больше score
+            scored.append((score, e))
         scored.sort(key=lambda t: t[0], reverse=True)
         hits = [Hit(chunk=e.chunk, score=float(s)) for s, e in scored[:top_k]]
         return SearchResult(query=None, hits=hits)

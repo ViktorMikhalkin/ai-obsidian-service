@@ -1,7 +1,7 @@
 
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
-from ai_obsidian_service.core import DocId, Document
 from ai_obsidian_service.di import make_components
+from ai_obsidian_service.domain.models import DocId, Document
 
 
 def test_collection_filter_works():

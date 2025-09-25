@@ -26,4 +26,5 @@ class SentenceTransformersEmbedder(Embedder):
         )
         if not isinstance(vec, np.ndarray):
             vec = np.asarray(vec)
-        return vec.astype(np.float32, copy=False)
+        result: np.ndarray = vec.astype(np.float32, copy=False)
+        return result
