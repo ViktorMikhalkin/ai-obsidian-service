@@ -1,211 +1,232 @@
-# Makefile for AI ↔ Obsidian — Local Indexing & RAG Service (conda-first)
+# ==========================================
+# AI Obsidian Service — Makefile (conda-based)
+# Environments (fixed by convention):
+#   - CPU env: aiobs-cpu
+#   - GPU env: aiobs-gpu
+#
+# Requires: conda (or mamba/micromamba as a drop-in for "conda")
+# Python: 3.12 (adjust if needed)
+# ==========================================
 
-SHELL := /bin/bash
-.SHELLFLAGS := -eo pipefail -c
+CONDA       ?= conda
+CPU_ENV     := aiobs-cpu
+GPU_ENV     := aiobs-gpu
+PYVER       := 3.12
 
-ENV    ?= aiobs-cpu
-PY     ?= 3.12
-CONDA  ?= $(shell command -v mamba >/dev/null 2>&1 && echo mamba || echo conda)
+# Tools run INSIDE the envs
+PY_CPU        := $(CONDA) run -n $(CPU_ENV) python
+PIP_CPU       := $(PY_CPU) -m pip
+PYTEST_CPU    := $(PY_CPU) -m pytest
+RUFF_CPU      := $(PY_CPU) -m ruff
+MYPY_CPU      := $(PY_CPU) -m mypy
+UVICORN_CPU   := $(PY_CPU) -m uvicorn
 
-.PHONY: env-cpu env-gpu setup-cpu setup-gpu install reinstall install-test-deps \
-	pre-commit help build test test-coverage test-integration test-all-envs \
-	lint lint-fix format format-check typecheck quality quality-all-envs \
-	dev-gpu dev-cpu dev-both check-cuda check-faiss check-gpu clean clean-env \
-	env-from-yml env-from-lock info quickstart-cpu quickstart-gpu serve status
+PY_GPU        := $(CONDA) run -n $(GPU_ENV) python
+PIP_GPU       := $(PY_GPU) -m pip
+PYTEST_GPU    := $(PY_GPU) -m pytest
 
-# Default target
+SRC := src
+TESTS := tests
+
+# Unit profile (aligns with CI unit job)
+PYTEST_UNIT_EXPR := not integration_cpu and not integration_gpu and not e2e and not faiss
+PYTEST_OPTS := -v --tb=short --strict-markers
+
+# ----------------------------
+# Help
+# ----------------------------
+.PHONY: help
 help:
-	@echo "Available targets:"
-	@echo "  setup-gpu       - Create GPU environment and install dependencies"
-	@echo "  setup-cpu       - Create CPU environment (fallback)"
-	@echo "  build           - Build the index (GPU-accelerated by default)"
-	@echo "  serve           - Start the API service"
-	@echo "  status          - Show index status"
+	@echo "Targets:"
+	@echo "  Environments:"
+	@echo "    env-create-cpu     Create CPU env ($(CPU_ENV)) with Python $(PYVER), project, faiss-cpu"
+	@echo "    env-create-gpu     Create GPU env ($(GPU_ENV)) with Python $(PYVER), project, faiss-gpu (+ CUDA req.)"
+	@echo "    env-remove-cpu     Remove CPU env ($(CPU_ENV))"
+	@echo "    env-remove-gpu     Remove GPU env ($(GPU_ENV))"
 	@echo ""
-	@echo "Development:"
-	@echo "  test            - Run all tests"
-	@echo "  test-coverage   - Run tests with coverage report"
-	@echo "  test-all-envs   - Test both GPU and CPU environments"
-	@echo "  lint            - Check code with ruff"
-	@echo "  lint-fix        - Auto-fix ruff issues"
-	@echo "  format          - Format code with ruff"
-	@echo "  typecheck       - Run mypy type checking"
-	@echo "  quality         - Run all quality checks (lint + typecheck + test)"
-	@echo "  quality-all-envs - Quality checks on both environments"
-	@echo "  pre-commit      - Run pre-commit checks (format-check + lint + typecheck)"
+	@echo "  Quality:"
+	@echo "    lint               Run ruff"
+	@echo "    fmt                Ruff --fix"
+	@echo "    type               Run mypy"
+	@echo "    check              lint + type + unit tests"
 	@echo ""
-	@echo "Environment Setup:"
-	@echo "  dev-gpu         - Setup GPU development environment"
-	@echo "  dev-cpu         - Setup CPU development environment"
-	@echo "  dev-both        - Setup both development environments"
+	@echo "  Tests:"
+	@echo "    test               Unit tests only (no faiss/integration/e2e)"
+	@echo "    test-faiss-cpu     FAISS CPU tests (markers: integration_cpu or faiss)"
+	@echo "    test-faiss-gpu     FAISS GPU tests (marker: integration_gpu)"
+	@echo "    test-e2e           End-to-end tests (marker: e2e)"
+	@echo "    test-all           Full suite (no marker filter)"
 	@echo ""
-	@echo "Maintenance:"
-	@echo "  clean           - Remove local index"
-	@echo "  clean-env       - Remove conda environment"
-	@echo "  check-gpu       - Verify GPU setup"
+	@echo "  Run:"
+	@echo "    serve              Run FastAPI dev server (CPU env)"
+	@echo ""
+	@echo "  Verify:"
+	@echo "    verify-cpu         Check Python/FAISS/Torch/ST (CPU)"
+	@echo "    verify-gpu         Check Python/FAISS/Torch/ST + CUDA device (GPU)"
+	@echo ""
+	@echo "  Housekeeping:"
+	@echo "    clean              Drop caches"
 
-# --- CPU-only environment (fast setup) ---
-env-cpu:
-	@echo "Creating CPU-only environment: $(ENV)"
-	@if [ ! -f environment.yml ]; then \
-		echo "Error: environment.yml not found!"; \
-		exit 1; \
-	fi
-	$(CONDA) env create -n $(ENV) -f environment.yml || \
-	$(CONDA) env update -n $(ENV) -f environment.yml
-	@echo "Setting strict channel priority..."
-	$(CONDA) run -n $(ENV) conda config --env --set channel_priority strict
+# ----------------------------
+# Environments
+# ----------------------------
 
-# --- GPU environment (recommended for CUDA 12.4) ---
-env-gpu:
-	@echo "Creating GPU environment: $(ENV) from environment.gpu.yml"
-	@if [ ! -f environment.gpu.yml ]; then \
-		echo "Error: environment.gpu.yml not found!"; \
-		exit 1; \
-	fi
-	$(CONDA) env create -n $(ENV) -f environment.gpu.yml || \
-	$(CONDA) env update -n $(ENV) -f environment.gpu.yml
-	@echo "Setting strict channel priority..."
-	$(CONDA) run -n $(ENV) conda config --env --set channel_priority strict
+.PHONY: env-create-cpu
+env-create-cpu:
+	@echo ">> Recreating CPU env $(CPU_ENV) with Python $(PYVER)"
+	-$(CONDA) env remove -n $(CPU_ENV) -y >/dev/null 2>&1 || true
+	$(CONDA) create -y -n $(CPU_ENV) python=$(PYVER) pip
+	@echo ">> Installing project (editable) + dev extras"
+	$(PIP_CPU) install --upgrade pip
+	$(PIP_CPU) install -e ".[dev]"
+	@echo ">> Installing FAISS CPU + sentence-transformers"
+	-$(CONDA) install -y -n $(CPU_ENV) -c conda-forge faiss-cpu || true
+	$(PIP_CPU) install sentence-transformers
+	@echo ">> (Optional) Torch CPU:"
+	@echo "   $(PIP_CPU) install torch --index-url https://download.pytorch.org/whl/cpu"
 
-# --- Complete setup with test dependencies ---
-setup-cpu: env-cpu
-	@echo "CPU environment $(ENV) is ready!"
+.PHONY: env-create-gpu
+env-create-gpu:
+	@echo ">> Recreating GPU env $(GPU_ENV) with Python $(PYVER)"
+	-$(CONDA) env remove -n $(GPU_ENV) -y >/dev/null 2>&1 || true
+	$(CONDA) create -y -n $(GPU_ENV) python=$(PYVER) pip
+	@echo ">> Installing project (editable) + dev extras"
+	$(PIP_GPU) install --upgrade pip
+	$(PIP_GPU) install -e ".[dev]"
+	@echo ">> Installing FAISS GPU + sentence-transformers"
+	-$(CONDA) install -y -n $(GPU_ENV) -c conda-forge faiss-gpu || true
+	$(PIP_GPU) install sentence-transformers
+	@echo ">> Installing Torch (CUDA) — adjust index if needed"
+	$(PIP_GPU) install torch --index-url https://download.pytorch.org/whl/cu121
+	@echo ">> NOTE: Run GPU targets on a CUDA-capable machine/runner."
 
-setup-gpu: env-gpu
-	@echo "GPU environment $(ENV) is ready!"
-	@echo "Verifying GPU setup..."
-	@$(MAKE) check-cuda
-	@$(MAKE) check-faiss
+.PHONY: env-remove-cpu
+env-remove-cpu:
+	-$(CONDA) env remove -n $(CPU_ENV) -y
 
-install:
-	@echo "Dependencies managed via conda environment - nothing to install"
+.PHONY: env-remove-gpu
+env-remove-gpu:
+	-$(CONDA) env remove -n $(GPU_ENV) -y
 
-reinstall:
-	@echo "Dependencies managed via conda environment - use 'make clean-env && make setup-gpu' to refresh"
+# ----------------------------
+# Quality
+# ----------------------------
 
-install-test-deps:
-	@echo "Test dependencies managed via conda environment - nothing to install"
-
-# --- Index building ---
-build:
-	@echo "Building index..."
-	@if [ "$(ENV)" = "aiobs-cpu" ] || [[ "$(ENV)" == *-cpu ]]; then \
-		echo "Using CPU-only mode"; \
-		mkdir -p scripts; \
-		echo '#!/bin/bash' > scripts/run_cpu.sh; \
-		echo 'export CUDA_VISIBLE_DEVICES=""' >> scripts/run_cpu.sh; \
-		echo 'export TORCH_DEVICE=cpu' >> scripts/run_cpu.sh; \
-		echo 'export PYTHONPATH=$(PWD)/src' >> scripts/run_cpu.sh; \
-		echo 'python -m ai_obsidian_service.cli.aiobs "$@"' >> scripts/run_cpu.sh; \
-		chmod +x scripts/run_cpu.sh; \
-		$(CONDA) run -n $(ENV) bash scripts/run_cpu.sh build; \
-	else \
-		$(CONDA) run -n $(ENV) env PYTHONPATH=$(PWD)/src python -m ai_obsidian_service.cli.aiobs build; \
-	fi
-
-build-test:
-	@echo "Building index in test mode..."
-	$(CONDA) run -n $(ENV) env PYTHONPATH=$(PWD)/src AIOBS_TEST_MODE=1 python -m ai_obsidian_service.cli.aiobs build
-
-# --- Index status ---
-status:
-	@echo "Checking index status..."
-	$(CONDA) run -n $(ENV) env PYTHONPATH=$(PWD)/src python -c "from ai_obsidian_service.indexer.status import main as _m; import sys; sys.exit(_m())"
-
-serve:
-	@echo "Starting API service at http://0.0.0.0:8000"
-	@if [ "$(ENV)" = "aiobs-cpu" ] || [[ "$(ENV)" == *-cpu ]]; then \
-		echo "Using CPU-only mode"; \
-		$(CONDA) run -n $(ENV) env PYTHONPATH=$(PWD)/src CUDA_VISIBLE_DEVICES="" TORCH_DEVICE=cpu uvicorn ai_obsidian_service.indexer.app:app --reload --host 0.0.0.0 --port 8000; \
-	else \
-		$(CONDA) run -n $(ENV) env PYTHONPATH=$(PWD)/src uvicorn ai_obsidian_service.indexer.app:app --reload --host 0.0.0.0 --port 8000; \
-	fi
-
-# --- Testing ---
-test:
-	@echo "Running tests..."
-	$(CONDA) run -n $(ENV) pytest -v
-
-test-coverage:
-	@echo "Running tests with coverage..."
-	$(CONDA) run -n $(ENV) pytest --cov=ai_obsidian_service --cov-report=html --cov-report=term
-
-test-integration:
-	@echo "Running integration tests..."
-	$(CONDA) run -n $(ENV) pytest tests/integration/ -v
-
-# --- Code Quality ---
+.PHONY: lint
 lint:
-	@echo "Running ruff linter..."
-	$(CONDA) run -n $(ENV) ruff check src/ tests/
+	$(RUFF_CPU) check $(SRC) $(TESTS)
 
-lint-fix:
-	@echo "Auto-fixing ruff issues..."
-	$(CONDA) run -n $(ENV) ruff check --fix src/ tests/
+.PHONY: fmt
+fmt:
+	$(RUFF_CPU) check $(SRC) $(TESTS) --fix
 
-format:
-	@echo "Formatting code with ruff..."
-	$(CONDA) run -n $(ENV) ruff format src/ tests/
+.PHONY: type
+type:
+	$(MYPY_CPU) $(SRC) $(TESTS)
 
-format-check:
-	@echo "Checking code formatting..."
-	$(CONDA) run -n $(ENV) ruff format --check src/ tests/
+.PHONY: check
+check: lint type test
+	@echo ">> All checks passed."
 
-typecheck:
-	@echo "Running mypy type checker..."
-	$(CONDA) run -n $(ENV) mypy src/
+# ----------------------------
+# Tests
+# ----------------------------
 
-# --- Quality meta-target ---
-quality:
-	@echo "Running all quality checks..."
-	@$(MAKE) lint
-	@$(MAKE) typecheck
-	@$(MAKE) test
+.PHONY: test
+test:
+	@echo ">> Unit tests (CPU env, no faiss/integration/e2e)"
+	VECTOR_STORE_BACKEND=memory AIOBS_TEST_MODE=1 $(PYTEST_CPU) $(PYTEST_OPTS) -m "$(PYTEST_UNIT_EXPR)"
 
-pre-commit:
-	@echo "Running pre-commit checks..."
-	$(CONDA) run -n $(ENV) pre-commit run --all-files
+.PHONY: test-faiss-cpu
+test-faiss-cpu:
+	@echo ">> FAISS CPU tests"
+	VECTOR_STORE_BACKEND=faiss $(PYTEST_CPU) $(PYTEST_OPTS) -m "integration_cpu or faiss"
 
-# --- Cross-environment testing ---
-test-all-envs:
-	@echo "Testing both GPU and CPU environments..."
-	@if conda env list | grep -q aiobs-gpu; then \
-		echo "Testing GPU environment..."; \
-		ENV=aiobs-gpu $(MAKE) test; \
-	else \
-		echo "GPU environment not found, skipping..."; \
-	fi
-	@if conda env list | grep -q aiobs-cpu; then \
-		echo "Testing CPU environment..."; \
-		ENV=aiobs-cpu $(MAKE) test; \
-	else \
-		echo "CPU environment not found, skipping..."; \
-	fi
+.PHONY: test-faiss-gpu
+test-faiss-gpu:
+	@echo ">> FAISS GPU tests"
+	VECTOR_STORE_BACKEND=faiss $(PYTEST_GPU) $(PYTEST_OPTS) -m "integration_gpu"
 
-quality-all-envs:
-	@echo "Quality checks on both environments..."
-	@if conda env list | grep -q aiobs-gpu; then \
-		echo "Quality checks on GPU environment..."; \
-		ENV=aiobs-gpu $(MAKE) quality; \
-	else \
-		echo "GPU environment not found, skipping..."; \
-	fi
-	@if conda env list | grep -q aiobs-cpu; then \
-		echo "Quality checks on CPU environment..."; \
-		ENV=aiobs-cpu $(MAKE) quality; \
-	else \
-		echo "CPU environment not found, skipping..."; \
-	fi
+.PHONY: test-e2e
+test-e2e:
+	@echo ">> E2E tests (CPU env)"
+	VECTOR_STORE_BACKEND=memory $(PYTEST_CPU) $(PYTEST_OPTS) -m "e2e"
 
-# --- Environment-specific development ---
-dev-gpu:
-	@echo
+.PHONY: test-all
+test-all:
+	@echo ">> FULL SUITE (CPU env)"
+	$(PYTEST_CPU) $(PYTEST_OPTS)
 
-test-cpu:
-	@echo "Running CPU-only tests (skip gpu marker)..."
-	$(CONDA) run -n $(ENV) pytest -m "not gpu" -v
+# ----------------------------
+# Run
+# ----------------------------
 
-ci-cpu: lint typecheck test-cpu
-	@echo "CI CPU suite finished."
+.PHONY: serve
+serve:
+	$(UVICORN_CPU) ai_obsidian_service.api.app:app --reload
 
+# ----------------------------
+# Verify environments (no heredocs — robust for Make)
+# ----------------------------
+
+.PHONY: verify-cpu
+verify-cpu:
+	@echo ">> Verifying CPU environment ($(CPU_ENV))"
+	@printf '%s\n' \
+	"import sys" \
+	"print('Python:', sys.version)" \
+	"try:" \
+	"    import faiss" \
+	"    print('FAISS available:', getattr(faiss, '__version__', 'unknown'))" \
+	"except Exception as e:" \
+	"    print('FAISS import FAILED:', e)" \
+	"try:" \
+	"    import torch" \
+	"    print('Torch available:', torch.__version__)" \
+	"    print('CUDA available:', torch.cuda.is_available())" \
+	"except Exception as e:" \
+	"    print('Torch import FAILED:', e)" \
+	"try:" \
+	"    import sentence_transformers" \
+	"    print('SentenceTransformers:', sentence_transformers.__version__)" \
+	"except Exception as e:" \
+	"    print('SentenceTransformers import FAILED:', e)" \
+	| $(PY_CPU) -
+
+.PHONY: verify-gpu
+verify-gpu:
+	@echo ">> Verifying GPU environment ($(GPU_ENV))"
+	@printf '%s\n' \
+	"import sys" \
+	"print('Python:', sys.version)" \
+	"try:" \
+	"    import faiss" \
+	"    print('FAISS available:', getattr(faiss, '__version__', 'unknown'))" \
+	"except Exception as e:" \
+	"    print('FAISS import FAILED:', e)" \
+	"try:" \
+	"    import torch" \
+	"    print('Torch available:', torch.__version__)" \
+	"    print('CUDA available:', torch.cuda.is_available())" \
+	"    " \
+	"    # If CUDA is available, show device name" \
+	"    if torch.cuda.is_available():" \
+	"        print('CUDA device:', torch.cuda.get_device_name(0))" \
+	"except Exception as e:" \
+	"    print('Torch import FAILED:', e)" \
+	"try:" \
+	"    import sentence_transformers" \
+	"    print('SentenceTransformers:', sentence_transformers.__version__)" \
+	"except Exception as e:" \
+	"    print('SentenceTransformers import FAILED:', e)" \
+	| $(PY_GPU) -
+
+# ----------------------------
+# Housekeeping
+# ----------------------------
+
+.PHONY: clean
+clean:
+	@echo ">> Cleaning caches..."
+	rm -rf .pytest_cache .mypy_cache .ruff_cache
+	find . -name "__pycache__" -type d -prune -exec rm -rf {} + 2>/dev/null || true
