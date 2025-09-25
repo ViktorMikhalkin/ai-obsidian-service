@@ -22,8 +22,7 @@ except Exception as e:  # pragma: no cover
 
 
 def _read_json(p: str | Path) -> dict[str, Any]:
-    import json
-    # Fix: Cast the result to ensure proper typing
+    # Cast for mypy
     result = json.loads(Path(p).read_text(encoding="utf-8"))
     return cast(dict[str, Any], result)
 
@@ -32,10 +31,10 @@ def _default_tmp_index_dir() -> str:
     root = os.path.join(tempfile.gettempdir(), "ai-obsidian-service", "faiss")
     return root
 
+
 def _ensure_dir(p: str | Path) -> None:
     auto = os.getenv("AIOS_INDEX_AUTO_CREATE", "1").lower() not in ("0", "false", "no")
     if not auto:
-        # do not auto-create; just check existence
         if not Path(p).exists():
             raise RuntimeError(f"Index directory does not exist: {p}")
         return
@@ -79,6 +78,7 @@ class FaissVectorStore(VectorStore):
                 self.dim = dim
             if self.dim != dim:
                 raise ValueError(f"Vector dimension mismatch: store={self.dim}, got={dim}") from None
+
     # -------- VectorStore API --------
 
     def upsert(self, chunks: Sequence[EmbeddedChunk]) -> None:
@@ -247,7 +247,6 @@ class FaissVectorStore(VectorStore):
         if idx_path.exists():
             try:
                 index = faiss.read_index(str(idx_path))
-                # faiss IndexFlatIP has d property
                 if getattr(index, "d", dim) != dim:
                     index = None  # fallback to rebuild
             except Exception:
@@ -276,20 +275,26 @@ class FaissVectorStore(VectorStore):
                 try:
                     pos = ids.index(cid)
                 except ValueError:
-                    raise ValueError("id {cid!r} not found in ids list") from None
+                    raise ValueError(f"id {cid!r} not found in ids list") from None
 
-                from ai_obsidian_service.core import (  # local import to avoid cycles
-                    Chunk,
-                    DocId,
-                )
+                # local import to avoid cycles
+                from ai_obsidian_service.core import Chunk, ChunkId, DocId
+
                 emb = V[pos, :]
                 # reconstruct Chunk from serialized minimal metadata
                 order = int(meta_rec.get("order", 0)) if isinstance(meta_rec, dict) else 0
                 source_id = meta_rec.get("sourceId", "unknown") if isinstance(meta_rec, dict) else "unknown"
                 chunks_map[cid] = EmbeddedChunk(
-                    chunk=Chunk(id=cid, doc_id=DocId(source_id), order=order, text=text, metadata=meta_rec if isinstance(meta_rec, dict) else {}),
+                    chunk=Chunk(
+                        id=ChunkId(cid),
+                        doc_id=DocId(source_id),
+                        order=order,
+                        text=text,
+                        metadata=meta_rec if isinstance(meta_rec, dict) else {},
+                    ),
                     embedding=emb,
                 )
+
         # Assemble store
         store = cls(dim=dim)
         store._index = index
