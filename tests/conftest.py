@@ -1,6 +1,4 @@
-
 import importlib
-
 import pytest
 
 
@@ -11,23 +9,34 @@ def _available(mod: str) -> bool:
     except Exception:
         return False
 
+
 def _has_faiss_cpu() -> bool:
     return _available("faiss")
+
 
 def _has_faiss_gpu() -> bool:
     if not _available("faiss"):
         return False
-    import faiss
-    return hasattr(faiss, "StandardGpuResources")
+    try:
+        faiss = importlib.import_module("faiss")
+        return hasattr(faiss, "StandardGpuResources")
+    except Exception:
+        return False
+
 
 def _has_sentence_transformers() -> bool:
     return _available("sentence_transformers")
 
+
 def _has_cuda() -> bool:
     if not _available("torch"):
         return False
-    import torch
-    return bool(torch.cuda.is_available())
+    try:
+        torch = importlib.import_module("torch")
+        return bool(torch.cuda.is_available())
+    except Exception:
+        return False
+
 
 def pytest_collection_modifyitems(config, items):
     faiss_ok = _has_faiss_cpu()

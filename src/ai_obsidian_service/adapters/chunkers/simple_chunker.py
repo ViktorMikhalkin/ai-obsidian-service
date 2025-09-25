@@ -32,6 +32,7 @@ class SimpleChunker(Chunker):
                     doc_id=DocId(doc.id),
                     order=idx,
                     text=t,
+                    metadata=doc.metadata,
                 )
             )
         return chunks

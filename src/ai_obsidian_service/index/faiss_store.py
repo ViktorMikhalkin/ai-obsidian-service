@@ -13,12 +13,17 @@ import numpy as np
 from ai_obsidian_service.domain.models import EmbeddedChunk, Hit, SearchResult
 from ai_obsidian_service.index.vector_store import VectorStore
 
-try:
-    import faiss
-except Exception as e:  # pragma: no cover
-    raise RuntimeError(
-        "FAISS is required for FaissVectorStore. Install `faiss-cpu` (or `faiss-gpu`)."
-    ) from e
+
+# LAZY IMPORT: Only import faiss when actually needed
+def _get_faiss():
+    """Lazy import of faiss to avoid segfault on module import."""
+    try:
+        import faiss
+        return faiss
+    except Exception as e:  # pragma: no cover
+        raise RuntimeError(
+            "FAISS is required for FaissVectorStore. Install `faiss-cpu` (or `faiss-gpu`)."
+        ) from e
 
 
 def _read_json(p: str | Path) -> dict[str, Any]:
@@ -63,13 +68,14 @@ class FaissVectorStore(VectorStore):
     """
 
     dim: int | None = None
-    _index: faiss.Index | None = field(default=None, init=False, repr=False)
+    _index: Any = field(default=None, init=False, repr=False)  # faiss.Index | None
     _ids: list[str] = field(default_factory=list, init=False, repr=False)
     _chunks: dict[str, EmbeddedChunk] = field(default_factory=dict, init=False, repr=False)
 
     # -------- lifecycle --------
 
     def _ensure_index(self, dim: int) -> None:
+        faiss = _get_faiss()
         if self._index is None:
             self._index = faiss.IndexFlatIP(dim)
             self.dim = dim
@@ -216,6 +222,7 @@ class FaissVectorStore(VectorStore):
     @classmethod
     def load(cls, dir_path: str | os.PathLike, *, expected_model_name: str | None = None) -> FaissVectorStore:
         """Load store from a directory. Validates dimensions and count."""
+        faiss = _get_faiss()
         d = Path(dir_path)
         meta = _read_json(d / "meta.json")
         version = int(meta.get("version", 0))
@@ -314,7 +321,8 @@ def _atomic_write_json(path: Path, obj: Any) -> None:
     tmp_path.replace(path)
 
 
-def _atomic_write_faiss(path: Path, index: faiss.Index | None) -> None:
+def _atomic_write_faiss(path: Path, index: Any) -> None:  # faiss.Index | None
+    faiss = _get_faiss()
     path.parent.mkdir(parents=True, exist_ok=True)
     # For empty store, still write an empty index container for consistency
     idx = index or faiss.IndexFlatIP(0)
