@@ -2,7 +2,8 @@ name: Release Please
 
 on:
   push:
-    branches: [main]
+    branches: [ main, master ]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -12,8 +13,19 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      - name: Release Please
-        uses: googleapis/release-please-action@v4
+      - name: Run Release Please
+        uses: google-github-actions/release-please-action@v4
         with:
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
+          release-type: python
+          package-name: ai-obsidian-service
+          bump-minor-pre-major: true
+          changelog-types: |
+            [{"type":"feat","section":"Features","hidden":false},
+             {"type":"fix","section":"Bug Fixes","hidden":false},
+             {"type":"perf","section":"Performance","hidden":false},
+             {"type":"refactor","section":"Refactoring","hidden":false},
+             {"type":"docs","section":"Docs","hidden":false},
+             {"type":"test","section":"Tests","hidden":false},
+             {"type":"build","section":"Build","hidden":false},
+             {"type":"ci","section":"CI","hidden":false},
+             {"type":"chore","section":"Chores","hidden":false}]
