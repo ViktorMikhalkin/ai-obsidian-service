@@ -10,27 +10,22 @@ from typing import Any
 import typer
 
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
-from ai_obsidian_service.adapters.parsers.md_parser import MarkdownParser
+from ai_obsidian_service.adapters.parsers import default_parsers
 from ai_obsidian_service.adapters.services.search_service import SearchService
 from ai_obsidian_service.di_selector import make_components
 
+
+# yaml import kept lazy/optional to avoid strict dependency for CLI
 try:
-    import yaml as _yaml
-    yaml: Any = _yaml
-except ImportError:  # pragma: no cover
-    yaml = None
+    import yaml as _yaml  # type: ignore[no-redef]
+except Exception:  # pragma: no cover
+    _yaml = None  # type: ignore[assignment]
+
+yaml: Any | None = _yaml  # keep mypy happy
 
 
-def _yaml_dump(obj: dict) -> str:
-    if yaml is not None:
-        # Fix: Explicit return type annotation to satisfy mypy
-        result: str = yaml.safe_dump(obj, sort_keys=False, allow_unicode=True)
-        return result
-    import json as _json
-    return _json.dumps(obj, ensure_ascii=False, indent=2)
+app = typer.Typer(help="AI↔Obsidian CLI (iteration-5, MD+PDF+EPUB)")
 
-
-app = typer.Typer(help="AI↔Obsidian CLI (iteration-5)")
 
 # ---------- small logging helpers ----------
 
@@ -60,6 +55,13 @@ def _fmt_eta(seconds: float) -> str:
     m, s = divmod(seconds, 60)
     h, m = divmod(m, 60)
     return f"{h:d}:{m:02d}:{s:02d}" if h > 0 else f"{m:d}:{s:02d}"
+
+
+def _yaml_dump(obj: dict) -> str:
+    if yaml is not None:
+        return yaml.safe_dump(obj, sort_keys=False, allow_unicode=True)
+    import json as _json
+    return _json.dumps(obj, ensure_ascii=False, indent=2)
 
 
 # ---------- config & scan ----------
@@ -109,28 +111,32 @@ def is_excluded(p: Path, excludes: Iterable[str]) -> bool:
     return any(fnmatch.fnmatch(s, ex.lower()) for ex in excludes)
 
 
-# ---------- DI builder (iteration-5) ----------
+# ---------- DI builder (iteration-5, all parsers) ----------
 
 def _build_search_service(index_dir: str | None, *, max_chars: int, overlap: int) -> SearchService:
     """
     Build SearchService using iteration-5 DI:
-      - chunker: SimpleChunker(max_chars, overlap)
-      - parser : MarkdownParser
-      - embedder/store/index: via make_components() (backend from env: VECTOR_STORE_BACKEND)
-    Note: FAISS/memory selection is handled by di_selector; index_dir is used by the store if it supports it.
+      - parsers: Markdown + PDF + EPUB (equal footing)
+      - chunker : SimpleChunker(max_chars, overlap)
+      - backend : make_components() selects embedder + store via env
     """
-    # Chunker/Parser — explicit (v5)
+    parsers = default_parsers()
     chunker = SimpleChunker(max_chars=max_chars, overlap=overlap)
-    parser = MarkdownParser()
+    di = make_components(chunker=chunker)
+    service: SearchService = di.search
 
-    # Backend (memory|faiss) is selected inside make_components based on env variables
-    cmp = make_components(chunker=chunker)
+    # Attach the full parser set to the service
+    if hasattr(service, "parsers"):
+        service.parsers = parsers  # type: ignore[attr-defined]
+    elif hasattr(service, "set_parsers"):
+        service.set_parsers(parsers)  # type: ignore[attr-defined]
+    else:
+        # Backward-compat: expose first parser if only single-parser API exists
+        try:
+            service.parser = parsers[0]  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
-    # If the store can write to disk — we can pass index_dir through env/config of the store itself.
-    # Here we leave it as is; folder creation is the store's responsibility.
-    service = cmp.search
-    # Just in case, make sure the service has our parser
-    service.parser = parser  # Remove unused type: ignore comment
     return service
 
 
@@ -151,14 +157,14 @@ def build() -> None:
     include_globs = cfg.get("include_globs", ["**/*.md", "**/*.pdf", "**/*.epub"])
     exclude_globs = cfg.get("exclude_globs", [])
 
-    # map token settings to chars roughly (4 chars ≈ 1 token), to avoid breaking config
+    # token→char rough mapping (≈ 4 chars per token)
     chunk_cfg = cfg.get("chunk", {})
     target_tokens = int(chunk_cfg.get("target_tokens", 250))
     overlap_tokens = int(chunk_cfg.get("overlap_tokens", 50))
     max_chars = max(50, target_tokens * 4)
     overlap = max(0, overlap_tokens * 4)
 
-    index_dir = cfg.get("index_dir")  # can be None — that's ok
+    index_dir = cfg.get("index_dir")
     service = _build_search_service(index_dir=index_dir, max_chars=max_chars, overlap=overlap)
 
     # collect files
@@ -187,7 +193,7 @@ def build() -> None:
         try:
             indexed_chunks += service.index_path(str(p))
         except Exception:
-            # keep run resilient; you may log exception here if needed
+            # keep run resilient; log locally if needed
             pass
         done += 1
         if tick.should_log() or done == total:
@@ -237,15 +243,25 @@ def index(dir: str, server: str = "http://127.0.0.1:8000") -> None:
 
 
 @app.command()
-def search(query: str, top_k: int = 5, collection: str | None = None, server: str = "http://127.0.0.1:8000") -> None:
+def search(
+        query: str,
+        top_k: int = 5,
+        collection: str | None = None,
+        server: str = "http://127.0.0.1:8000",
+) -> None:
     """Call /search and print results."""
     import json as _json
     from urllib.request import Request, urlopen
-    body = {"query": query, "top_k": int(top_k)}
+    body: dict[str, Any] = {"query": query, "top_k": int(top_k)}
     if collection:
         body["collection"] = collection
     data = _json.dumps(body).encode("utf-8")
-    req = Request(f"{server.rstrip('/')}/search", method="POST", headers={"Content-Type": "application/json"}, data=data)
+    req = Request(
+        f"{server.rstrip('/')}/search",
+        method="POST",
+        headers={"Content-Type": "application/json"},
+        data=data,
+    )
     with urlopen(req) as resp:
         out = resp.read().decode("utf-8")
     try:
