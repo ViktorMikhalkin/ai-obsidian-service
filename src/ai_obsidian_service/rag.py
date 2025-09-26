@@ -1,17 +1,13 @@
 from __future__ import annotations
-
-import re
-
+from typing import List, Optional, Tuple
+from ai_obsidian_service.core import SearchResult
 from ai_obsidian_service.adapters.llm.ollama_client import OllamaClient, OllamaError
-from ai_obsidian_service.domain.models import SearchResult
 
-
-def _find_span(haystack: str | None, needle: str) -> tuple[int, int]:
+def _find_span(haystack: str | None, needle: str) -> Tuple[int, int]:
     if not haystack:
         return (-1, -1)
     i = haystack.find(needle or "")
     return (i, i + len(needle)) if i >= 0 and needle else (-1, -1)
-
 
 def _compose_context(result: SearchResult, *, max_snippets: int = 8) -> str:
     lines: list[str] = []
@@ -19,24 +15,14 @@ def _compose_context(result: SearchResult, *, max_snippets: int = 8) -> str:
         path = None
         try:
             if hasattr(h, "chunk") and h.chunk is not None and hasattr(h.chunk, "meta"):
-                meta = h.chunk.meta
-                if meta is not None:
-                    path = meta.get("path")
+                path = h.chunk.meta.get("path")
         except Exception:
             path = None
         label = f"[{path or h.doc_id}:{h.chunk_id}]"
-
-        # Use full chunk text instead of truncated snippet
-        text = ""
-        if hasattr(h, "chunk") and h.chunk is not None:
-            text = (h.chunk.text or "").strip().replace("\n", " ")
-        elif h.snippet:
-            text = h.snippet.strip().replace("\n", " ")
-
-        if text:
-            lines.append(f"{label} {text}")
+        snip = (h.snippet or "").strip().replace("\n", " ")
+        if snip:
+            lines.append(f"{label} {snip}")
     return "\n".join(lines)
-
 
 def _default_prompt(query: str, context: str) -> str:
     return (
@@ -44,16 +30,6 @@ def _default_prompt(query: str, context: str) -> str:
         "If the answer is not present, say you don't know.\n\n"
         f"Question:\n{query}\n\nContext:\n{context}\n\nAnswer:\n"
     )
-
-
-def _clean_llm_response(text: str) -> str:
-    """Remove thinking tags and other artifacts from LLM response."""
-    # Remove <think>...</think> blocks (case insensitive, handles multiline)
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.IGNORECASE | re.DOTALL)
-    # Clean up any extra whitespace
-    text = re.sub(r"\n\s*\n\s*\n", "\n\n", text)
-    return text.strip()
-
 
 def _mini_answer_from_snippets(result: SearchResult) -> str:
     hits = result.hits[:]
@@ -73,17 +49,16 @@ def _mini_answer_from_snippets(result: SearchResult) -> str:
         if len(bullets) >= 5:
             break
     header = f"Based on {len(hits)} retrieved chunks"
-    if result.query and result.query.top_k:
+    if result.query.top_k:
         header += f" (top_k={result.query.top_k})"
     return header + ":\n" + "\n".join(bullets) if bullets else header + "."
 
-
 def answer_with_citations(
-    query: str,
-    result: SearchResult,
-    *,
-    llm: OllamaClient | None = None,
-    system_prompt: str | None = None,
+        query: str,
+        result: SearchResult,
+        *,
+        llm: Optional[OllamaClient] = None,
+        system_prompt: Optional[str] = None,
 ) -> tuple[str, list[dict]]:
     # citations
     citations: list[dict] = []
@@ -98,35 +73,22 @@ def answer_with_citations(
         doc_path = None
         try:
             if hasattr(h, "chunk") and h.chunk is not None and hasattr(h.chunk, "meta"):
-                meta = h.chunk.meta
-                if meta is not None:
-                    doc_path = meta.get("path")
+                doc_path = h.chunk.meta.get("path")
         except Exception:
             doc_path = None
         citations.append(
-            {
-                "doc_path": doc_path,
-                "chunk_id": str(h.chunk_id),
-                "snippet": h.snippet or "",
-                "span": span,
-            }
+            {"doc_path": doc_path, "chunk_id": str(h.chunk_id), "snippet": h.snippet or "", "span": span}
         )
 
     if llm is None:
         return (_mini_answer_from_snippets(result), citations)
 
-    top_k = result.query.top_k if result.query else 8
-    ctx = _compose_context(result, max_snippets=max(1, top_k or 8))
+    ctx = _compose_context(result, max_snippets=max(1, result.query.top_k or 8))
     if not ctx.strip():
-        return (
-            "I couldn't find relevant context. Try reindexing your vault or widening the query.",
-            citations,
-        )
+        return ("I couldn't find relevant context. Try reindexing your vault or widening the query.", citations)
     prompt = _default_prompt(query, ctx)
     try:
         text = llm.generate(prompt, system=system_prompt)
-        # Clean up LLM response (remove thinking tags, etc.)
-        text = _clean_llm_response(text)
     except OllamaError:
         text = _mini_answer_from_snippets(result)
     return (text.strip(), citations)

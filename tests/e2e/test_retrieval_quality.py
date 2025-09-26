@@ -1,10 +1,11 @@
 from __future__ import annotations
-
+from pathlib import Path
 from math import log2
-
 import pytest
 
 from ai_obsidian_service.config.container import build_search_service
+from ai_obsidian_service.adapters.parsers.md_parser import MarkdownParser
+from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
 
 # ---- tiny golden truth (doc path, chunk_order=0)
 GOLD = {
@@ -13,36 +14,25 @@ GOLD = {
     "delta": {("notes/B.md", 0), ("docs/C.md", 0)},
 }
 
-
-def precision_at_k(
-    pred: list[tuple[str, int]], truth: set[tuple[str, int]], k: int
-) -> float:
+def precision_at_k(pred: list[tuple[str,int]], truth: set[tuple[str,int]], k: int) -> float:
     got = pred[:k]
     hit = sum(1 for x in got if x in truth)
     return hit / max(1, k)
 
-
 def dcg_at_k(rel: list[int], k: int) -> float:
-    return sum(rel[i] / log2(i + 2) for i in range(min(k, len(rel))))
+    return sum((rel[i] / log2(i+2) for i in range(min(k, len(rel)))))
 
-
-def ndcg_at_k(
-    pred: list[tuple[str, int]], truth: set[tuple[str, int]], k: int
-) -> float:
+def ndcg_at_k(pred: list[tuple[str,int]], truth: set[tuple[str,int]], k: int) -> float:
     rel = [1 if x in truth else 0 for x in pred[:k]]
     idcg = dcg_at_k(sorted(rel, reverse=True), k)
     return (dcg_at_k(rel, k) / idcg) if idcg > 0 else 0.0
-
 
 @pytest.fixture(scope="module")
 def service(tmp_path_factory: pytest.TempPathFactory):
     # Build a real service with markdown parser + simple chunker; memory vector store per env
     s = build_search_service(index_dir=None)
-
-    # Note: SearchService has 'parsers' (list), not 'parser' (single)
-    # and chunker is part of the index, not the service directly
-    # The service is already configured with appropriate parsers and chunker
-    # from build_search_service, so we don't need to override them
+    s.parser = MarkdownParser()
+    s.chunker = SimpleChunker(max_chars=512, overlap=32)
 
     # create mini vault
     root = tmp_path_factory.mktemp("vault")
@@ -62,7 +52,6 @@ def service(tmp_path_factory: pytest.TempPathFactory):
     s._gold_root = str(root)  # type: ignore[attr-defined]
     return s
 
-
 def _to_pred_list(hits):
     out = []
     for h in hits:
@@ -78,10 +67,9 @@ def _to_pred_list(hits):
         out.append((path, int(order or 0)))
     return out
 
-
 @pytest.mark.e2e
 def test_retrieval_precision_and_ndcg(service):
-    THRESH_P5 = 0.6  # tune thresholds to avoid flakiness across embeddings
+    THRESH_P5 = 0.6   # tune thresholds to avoid flakiness across embeddings
     THRESH_N5 = 0.6
     K = 5
 
@@ -93,7 +81,6 @@ def test_retrieval_precision_and_ndcg(service):
         n5 = ndcg_at_k(pred, truth, K)
         assert p5 >= THRESH_P5, f"{q}: P@{K}={p5:.2f} < {THRESH_P5}"
         assert n5 >= THRESH_N5, f"{q}: nDCG@{K}={n5:.2f} < {THRESH_N5}"
-
 
 @pytest.mark.e2e
 def test_collection_filter_limits_results(service):

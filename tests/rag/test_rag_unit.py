@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Protocol
+
+import pytest
 
 from ai_obsidian_service.core import ChunkId, DocId, Hit, Query, SearchResult
 from ai_obsidian_service.rag import answer_with_citations
@@ -11,10 +12,6 @@ class _Chunk:
     def __init__(self, text: str, path: str = "docs/x.md") -> None:
         self.text = text
         self.meta = {"path": path}
-
-
-class _LLMProtocol(Protocol):
-    def generate(self, prompt: str, system: str | None = None) -> str: ...
 
 
 def _sr(snippet: str, text: str = "lorem ipsum dolor") -> SearchResult:
@@ -28,9 +25,7 @@ def _sr(snippet: str, text: str = "lorem ipsum dolor") -> SearchResult:
         snippet=snippet,
         chunk=ch,  # type: ignore[arg-type]
     )
-    return SearchResult(
-        query=q, hits=[hit], total_time_ms=0.1, retrieved_at=datetime.now()
-    )
+    return SearchResult(query=q, hits=[hit], total_time_ms=0.1, retrieved_at=datetime.now())
 
 
 def test_answer_with_citations_mini_mode() -> None:
@@ -51,7 +46,6 @@ def test_answer_with_citations_llm_path() -> None:
             return "LLM ok"
 
     res = _sr(snippet="hello world", text="hello world and others")
-    # Use type: ignore to suppress the type checker error for this test mock
-    answer, cites = answer_with_citations("q", res, llm=_LLM())  # type: ignore[arg-type]
+    answer, cites = answer_with_citations("q", res, llm=_LLM())
     assert answer == "LLM ok"
     assert len(cites) == 1
