@@ -12,29 +12,64 @@ from ai_obsidian_service.rerank.bm25 import BM25Reranker
 
 @dataclass(slots=True)
 class SearchService:
+    """
+    SearchService that supports multiple parsers.
+    - If constructed with `parsers`, it will select a parser by can_parse(path).
+    - For backward-compatibility, `parser=` is still accepted and wrapped as a single-item list.
+    """
     index: EmbeddingIndex
-    parser: DocumentParser
+    parsers: Sequence[DocumentParser]
     reranker: BM25Reranker | None = None
     rerank_topn: int = 50
 
-    def __init__(self, index: EmbeddingIndex, parser: DocumentParser, reranker: BM25Reranker | None = None, rerank_topn: int = 50, **_: Any) -> None:
+    # Backward-compatible signature: allow `parser=` OR `parsers=`.
+    def __init__(
+            self,
+            index: EmbeddingIndex,
+            parser: DocumentParser | None = None,
+            parsers: Sequence[DocumentParser] | None = None,
+            reranker: BM25Reranker | None = None,
+            rerank_topn: int = 50,
+            **_: Any,
+    ) -> None:
         self.index = index
-        self.parser = parser
+        if parsers is not None and len(parsers) > 0:
+            self.parsers = tuple(parsers)
+        elif parser is not None:
+            self.parsers = (parser,)
+        else:
+            raise ValueError("SearchService requires at least one DocumentParser (parser= or parsers=).")
         self.reranker = reranker
-        self.rerank_topn = rerank_topn
+        self.rerank_topn = int(rerank_topn)
+
+    # ---------- indexing ----------
 
     def index_document(self, document: Document) -> int:
         return self.index.index_document(document)
 
+    def _select_parser(self, path: str) -> DocumentParser:
+        for p in self.parsers:
+            try:
+                if p.can_parse(path):
+                    return p
+            except Exception:
+                # Be robust to parser-specific issues when probing
+                continue
+        raise ValueError(f"No parser available for path: {path}")
+
     def index_path(self, path: str) -> int:
-        doc = self.parser.parse(path)
+        parser = self._select_parser(path)
+        doc = parser.parse(path)
         return self.index.index_document(doc)
+
+    # ---------- search ----------
 
     def _post_filter_collection(self, hits: Sequence[Hit], collection: str | None) -> list[Hit]:
         if not collection:
             return list(hits)
         out: list[Hit] = []
         for h in hits:
+            # prefer h.metadata; fallback to chunk.metadata if present
             meta = (h.metadata or (h.chunk.metadata if h.chunk else None)) or {}
             if meta.get("collection") == collection:
                 out.append(h)
@@ -53,6 +88,8 @@ class SearchService:
 
         result.hits = hits[:top_k]
         return result
+
+    # ---------- misc ----------
 
     def resolve_meta(self, chunk_id: str) -> dict[str, Any]:  # pragma: no cover
         return {}

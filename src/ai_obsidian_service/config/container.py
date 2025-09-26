@@ -1,59 +1,52 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
-
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
-from ai_obsidian_service.adapters.parsers.md_parser import MarkdownParser
+from ai_obsidian_service.adapters.parsers import default_parsers
 from ai_obsidian_service.adapters.services.search_service import SearchService
 from ai_obsidian_service.di_selector import make_components
-from ai_obsidian_service.ports.interfaces import Chunker as ChunkerPort
 from ai_obsidian_service.usecases.index_corpus import IndexCorpus
-
-chunker: ChunkerPort = SimpleChunker(max_chars=1000, overlap=100)
-cmp = make_components(chunker=chunker)
 
 
 def build_search_service(index_dir: str | None = None) -> SearchService:
     """
-    Build an iteration-5 SearchService:
-      - parser  : MarkdownParser (concrete)
-      - chunker : SimpleChunker(max_chars=1000, overlap=100)
-      - embedder/store/index come from di_selector.make_components(...)
-        (backend is chosen via env: VECTOR_STORE_BACKEND=memory|faiss)
-
-    If a store supports persistence and exposes `index_dir`, we set it when provided.
+    Build a production SearchService:
+      - parsers: Markdown + PDF + EPUB (equal footing)
+      - chunker: SimpleChunker(max_chars=1000, overlap=100)
+      - embedder/store/index: selected in di_selector.make_components()
+        (backends decided via env, e.g. VECTOR_STORE_BACKEND)
+    Note:
+      - index_dir may be used by the underlying store if it persists to disk.
+      - we attach the parsers set directly to the returned service.
     """
-    parser = MarkdownParser()
-    chunker: ChunkerPort = SimpleChunker(max_chars=1000, overlap=100)
+    parsers = default_parsers()
+    chunker = SimpleChunker(max_chars=1000, overlap=100)
+    di = make_components(chunker=chunker)
+    service: SearchService = di.search  # returned by DI factory
 
-    # Build core components (embedder + vector store + index + search service)
-    cmp = make_components(chunker=chunker)
-    service: SearchService = cmp.search
-
-    # Ensure the service uses our concrete parser explicitly
-    service.parser = parser  # the service expects a DocumentParser
-
-    # Optional: forward index_dir to the underlying store if it supports it
-    if index_dir is not None:
-        store: Any = getattr(cmp.index, "store", None)
-        if store is not None and hasattr(store, "index_dir"):
-            store.index_dir = index_dir
-            try:
-                Path(index_dir).mkdir(parents=True, exist_ok=True)
-            except PermissionError as e:  # keep a friendly error message
-                raise RuntimeError(f"Cannot create index_dir {index_dir}: {e}") from e
+    # Ensure the service knows about *all* parsers
+    if hasattr(service, "parsers"):
+        # Some versions expose `.parsers` explicitly
+        service.parsers = parsers  # type: ignore[attr-defined]
+    elif hasattr(service, "set_parsers"):
+        # Or a setter is available
+        service.set_parsers(parsers)  # type: ignore[attr-defined]
+    else:
+        # As a last resort, keep compatibility with older signatures that accepted a single parser
+        # by setting a primary parser and letting the service select internally if it supports it.
+        try:
+            service.parser = parsers[0]  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
     return service
 
 
 def build_index_corpus(index_dir: str | None = None) -> IndexCorpus:
     """
-    Build the use case for bulk indexing of a directory, delegating to SearchService.
-    We pass a concrete parser list and the same chunker, to keep the pipeline explicit.
+    Build the use-case for bulk indexing a directory. It delegates actual parsing/chunking/upsert
+    to the SearchService built above.
     """
-    parser = MarkdownParser()
-    chunker: ChunkerPort = SimpleChunker(max_chars=1000, overlap=100)
+    parsers = default_parsers()
+    chunker = SimpleChunker(max_chars=1000, overlap=100)
     service = build_search_service(index_dir=index_dir)
-    # IndexCorpus expects parsers (sequence), chunker, and the service
-    return IndexCorpus(parsers=[parser], chunker=chunker, service=service)
+    return IndexCorpus(parsers=parsers, chunker=chunker, service=service)
