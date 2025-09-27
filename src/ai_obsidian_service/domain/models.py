@@ -43,7 +43,6 @@ class EmbeddedChunk:
     embedding: np.ndarray  # 1D float32
 
 
-# For legacy FAISS adapter
 @dataclass(slots=True)
 class EmbeddedQuery:
     text: str | None
@@ -58,25 +57,19 @@ class Query:
 
 @dataclass(slots=True)
 class Hit:
-    # modern path - through chunk
-    chunk: Chunk | None = None
-    score: float = 0.0
-    # legacy fields (so old calls with named arguments don't fail)
-    doc_id: DocId | None = None
-    chunk_id: ChunkId | None = None
-    chunk_order: int | None = None
-    snippet: str | None = None
-    start_char: int | None = None
-    end_char: int | None = None
-    metadata: dict[str, Any] | None = None
+    doc_id: DocId
+    chunk_id: ChunkId
+    chunk_order: int
+    score: float
+    snippet: str
+    chunk: Optional["Chunk"] = None
+    metadata: Optional[dict[str, Any]] = None
 
     def __post_init__(self) -> None:
-        if self.chunk is not None:
-            self.doc_id = self.doc_id or self.chunk.doc_id
-            self.chunk_id = self.chunk_id or self.chunk.id
-            self.chunk_order = self.chunk_order if self.chunk_order is not None else self.chunk.order
-            if self.metadata is None:
-                self.metadata = self.chunk.metadata
+        # если metadata не задана — аккуратно достать из chunk, если она там есть
+        if self.metadata is None:
+            chunk_meta = getattr(self.chunk, "metadata", None) if self.chunk is not None else None
+            self.metadata = chunk_meta or {}
 
 
 @dataclass(slots=True)

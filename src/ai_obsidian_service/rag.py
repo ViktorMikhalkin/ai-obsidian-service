@@ -1,9 +1,10 @@
 from __future__ import annotations
-from typing import List, Optional, Tuple
-from ai_obsidian_service.core import SearchResult
-from ai_obsidian_service.adapters.llm.ollama_client import OllamaClient, OllamaError
 
-def _find_span(haystack: str | None, needle: str) -> Tuple[int, int]:
+from ai_obsidian_service.adapters.llm.ollama_client import OllamaClient, OllamaError
+from ai_obsidian_service.domain.models import SearchResult
+
+
+def _find_span(haystack: str | None, needle: str) -> tuple[int, int]:
     if not haystack:
         return (-1, -1)
     i = haystack.find(needle or "")
@@ -57,8 +58,8 @@ def answer_with_citations(
         query: str,
         result: SearchResult,
         *,
-        llm: Optional[OllamaClient] = None,
-        system_prompt: Optional[str] = None,
+        llm: OllamaClient | None = None,
+        system_prompt: str | None = None,
 ) -> tuple[str, list[dict]]:
     # citations
     citations: list[dict] = []

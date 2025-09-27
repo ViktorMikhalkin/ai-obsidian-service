@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any
 
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
 from ai_obsidian_service.adapters.parsers import default_parsers

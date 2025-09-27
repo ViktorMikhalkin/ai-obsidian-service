@@ -1,11 +1,12 @@
 from __future__ import annotations
-from pathlib import Path
+
 from math import log2
+
 import pytest
 
-from ai_obsidian_service.config.container import build_search_service
-from ai_obsidian_service.adapters.parsers.md_parser import MarkdownParser
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
+from ai_obsidian_service.adapters.parsers.md_parser import MarkdownParser
+from ai_obsidian_service.config.container import build_search_service
 
 # ---- tiny golden truth (doc path, chunk_order=0)
 GOLD = {
@@ -20,7 +21,7 @@ def precision_at_k(pred: list[tuple[str,int]], truth: set[tuple[str,int]], k: in
     return hit / max(1, k)
 
 def dcg_at_k(rel: list[int], k: int) -> float:
-    return sum((rel[i] / log2(i+2) for i in range(min(k, len(rel)))))
+    return sum(rel[i] / log2(i+2) for i in range(min(k, len(rel))))
 
 def ndcg_at_k(pred: list[tuple[str,int]], truth: set[tuple[str,int]], k: int) -> float:
     rel = [1 if x in truth else 0 for x in pred[:k]]
