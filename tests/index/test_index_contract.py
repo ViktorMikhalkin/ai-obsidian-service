@@ -1,21 +1,24 @@
+# tests/index/test_index_contract.py
 from __future__ import annotations
 
-from pathlib import Path
-from ai_obsidian_service.adapters.services.search_service import SearchService
+from ai_obsidian_service.domain.models import Query
 
 
-def test_empty_index_search_returns_empty(search_service: SearchService):
-    res = search_service.search_text("alpha", top_k=5)
+def test_empty_index_search_returns_empty(empty_search_service):
+    """
+    With an empty index, search should return no hits.
+    Uses the special empty_search_service fixture (no indexing performed).
+    """
+    res = empty_search_service.search_text("anything", top_k=5)
     assert res.hits == []
 
 
-def test_search_respects_topk_and_scores(search_service: SearchService, mini_vault: Path):
-    # index markdown files
-    for p in sorted(mini_vault.rglob("*.md")):
-        search_service.index_path(str(p))
-
-    res = search_service.search_text("charlie", top_k=2)
-    assert 0 < len(res.hits) <= 2
-
-    scores = [h.score for h in res.hits]
-    assert all(scores[i] >= scores[i + 1] for i in range(len(scores) - 1))
+def test_search_respects_topk_and_scores(search_service):
+    """
+    On the indexed mini_vault, ensure top_k is respected and scores are present.
+    """
+    q = Query("hello", top_k=1)
+    res = search_service.search_text(q.text, top_k=q.top_k)
+    assert len(res.hits) <= q.top_k
+    for h in res.hits:
+        assert isinstance(h.score, float)

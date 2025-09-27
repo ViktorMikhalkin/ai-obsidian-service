@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-import os
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
 from ai_obsidian_service.adapters.parsers import default_parsers
 from ai_obsidian_service.adapters.services.search_service import SearchService
-
-from ai_obsidian_service.index.embedding_index import EmbeddingIndex
 from ai_obsidian_service.index.embedder_sentence_transformers import (
     SentenceTransformersEmbedder,
 )
+from ai_obsidian_service.index.embedding_index import EmbeddingIndex
+
 # NOTE: stores live directly under `index/`, not under `index/vector_store/`
 from ai_obsidian_service.index.faiss_store import FaissVectorStore
 from ai_obsidian_service.index.memory_store import InMemoryVectorStore

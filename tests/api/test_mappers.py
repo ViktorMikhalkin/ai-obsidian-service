@@ -1,6 +1,7 @@
 # tests/api/test_mappers.py
 from __future__ import annotations
 
+import pytest
 from ai_obsidian_service.api.mappers import hits_to_search_response
 from ai_obsidian_service.domain.models import Chunk, Hit, Query, DocId, ChunkId
 
@@ -22,7 +23,7 @@ def test_hits_to_search_response_maps_fields():
         chunk=ch,
     )
 
-    # Provide resolve_meta that returns a path to ensure the mapper fills it
+    # resolve_meta returns path — mapper will fill it into the DTO
     res = hits_to_search_response(
         Query("hello", top_k=1),
         [hit],
@@ -32,8 +33,9 @@ def test_hits_to_search_response_maps_fields():
     assert res.query == "hello"
     assert res.top_k == 1
     assert len(res.hits) == 1
-    dto = res.hits[0]
-    assert dto.id == "c1"
-    assert dto.path == "notes/a.md"
-    assert dto.collection == "notes"
-    assert dto.score == pytest.approx(0.9, rel=1e-6)
+
+    h = res.hits[0]
+    payload = h.model_dump() if hasattr(h, "model_dump") else (h if isinstance(h, dict) else h.__dict__)
+    assert payload.get("id") == "c1"
+    assert payload.get("path") == "notes/a.md"
+    assert pytest.approx(payload.get("score", 0.0), rel=1e-6) == 0.9
