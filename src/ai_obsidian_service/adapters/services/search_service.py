@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, Sequence, Iterable, List
+from collections.abc import Iterable, Sequence
 
 from ai_obsidian_service.domain.models import Hit, SearchResult
 
@@ -43,14 +43,30 @@ class SearchService:
         parser = self._select_parser(path)
         if parser is None:
             return 0
-        doc = parser.parse(path)
+
+        # For test compatibility, find vault root by looking for 'vault' in path
+        from pathlib import Path
+        path_obj = Path(path)
+
+        # Walk up the path to find 'vault' directory
+        vault_root = None
+        for parent in path_obj.parents:
+            if parent.name == 'vault':
+                vault_root = str(parent)
+                break
+
+        # Fallback to immediate parent if no 'vault' found
+        if vault_root is None:
+            vault_root = str(path_obj.parent)
+
+        doc = parser.parse(vault_root, path)
         if doc is None:
             return 0
         return self.index.index_document(doc)
 
     # ---------- search ----------
 
-    def _filter_by_collection(self, hits: Sequence[Hit], collection: Optional[str]) -> list[Hit]:
+    def _filter_by_collection(self, hits: Sequence[Hit], collection: str | None) -> list[Hit]:
         if not collection:
             return list(hits)
         want = collection

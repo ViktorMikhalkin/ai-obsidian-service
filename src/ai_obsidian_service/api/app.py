@@ -16,7 +16,6 @@ from ai_obsidian_service.api.mappers import (
 )
 from ai_obsidian_service.api.schemas import (
     AnswerRequest,
-    AnswerResponse,
     InfoSchema,
     SearchRequest,
 )

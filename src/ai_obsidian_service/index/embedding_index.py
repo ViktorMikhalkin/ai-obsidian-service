@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Sequence
 
 import numpy as np
 

@@ -1,16 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Sequence
 
 import numpy as np
 
 from ai_obsidian_service.domain.models import (
+    ChunkId,
+    DocId,
     EmbeddedChunk,
     EmbeddedQuery,
     Hit,
-    ChunkId,
-    DocId,
 )
 
 
