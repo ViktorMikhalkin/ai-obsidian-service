@@ -1,98 +1,84 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import Any
+from typing import Optional, Sequence, Iterable, List
 
-from ai_obsidian_service.core import Document, DocumentParser
 from ai_obsidian_service.domain.models import Hit, SearchResult
-from ai_obsidian_service.index.embedding_index import EmbeddingIndex
-from ai_obsidian_service.rerank.bm25 import BM25Reranker
 
 
-@dataclass(slots=True)
 class SearchService:
     """
-    SearchService that supports multiple parsers.
-    - If constructed with `parsers`, it will select a parser by can_parse(path).
-    - For backward-compatibility, `parser=` is still accepted and wrapped as a single-item list.
-    """
-    index: EmbeddingIndex
-    parsers: Sequence[DocumentParser]
-    reranker: BM25Reranker | None = None
-    rerank_topn: int = 50
+    Thin service over EmbeddingIndex + parsers + (opt.) BM25 re-ranker.
 
-    # Backward-compatible signature: allow `parser=` OR `parsers=`.
+    - parsers: list of parser adapters; first .can_parse(path) wins
+    - index  : EmbeddingIndex with .index_document(Document) and .search_text(str, top_k)
+    - reranker (optional): must expose rerank(query: str, hits: list[Hit], limit: int) -> Iterable[Hit]
+    """
+
     def __init__(
             self,
-            index: EmbeddingIndex,
-            parser: DocumentParser | None = None,
-            parsers: Sequence[DocumentParser] | None = None,
-            reranker: BM25Reranker | None = None,
+            *,
+            index,
+            parsers: Sequence[object],
+            reranker: object | None = None,
             rerank_topn: int = 50,
-            **_: Any,
     ) -> None:
         self.index = index
-        if parsers is not None and len(parsers) > 0:
-            self.parsers = tuple(parsers)
-        elif parser is not None:
-            self.parsers = (parser,)
-        else:
-            raise ValueError("SearchService requires at least one DocumentParser (parser= or parsers=).")
+        self.parsers = list(parsers)
         self.reranker = reranker
         self.rerank_topn = int(rerank_topn)
 
     # ---------- indexing ----------
 
-    def index_document(self, document: Document) -> int:
-        return self.index.index_document(document)
-
-    def _select_parser(self, path: str) -> DocumentParser:
+    def _select_parser(self, path: str):
         for p in self.parsers:
             try:
                 if p.can_parse(path):
                     return p
             except Exception:
-                # Be robust to parser-specific issues when probing
+                # keep robust; broken parser shouldn't crash the whole run
                 continue
-        raise ValueError(f"No parser available for path: {path}")
+        return None
 
     def index_path(self, path: str) -> int:
         parser = self._select_parser(path)
+        if parser is None:
+            return 0
         doc = parser.parse(path)
+        if doc is None:
+            return 0
         return self.index.index_document(doc)
 
     # ---------- search ----------
 
-    def _post_filter_collection(self, hits: Sequence[Hit], collection: str | None) -> list[Hit]:
+    def _filter_by_collection(self, hits: Sequence[Hit], collection: Optional[str]) -> list[Hit]:
         if not collection:
             return list(hits)
+        want = collection
         out: list[Hit] = []
         for h in hits:
-            # prefer h.metadata; fallback to chunk.metadata if present
-            meta = (h.metadata or (h.chunk.metadata if h.chunk else None)) or {}
-            if meta.get("collection") == collection:
+            meta = (h.metadata or (h.chunk.metadata if (h.chunk and getattr(h.chunk, "metadata", None)) else None)) or {}
+            if meta.get("collection") == want:
                 out.append(h)
         return out
 
     def search_text(self, text: str, top_k: int = 5, collection: str | None = None) -> SearchResult:
-        candidates_k = max(top_k, self.rerank_topn if self.reranker else top_k)
-        result = self.index.search(text, top_k=candidates_k)
-        hits = self._post_filter_collection(result.hits, collection)
+        # 1) retrieve topN from vector index
+        candidates_k = max(self.rerank_topn, top_k) if self.reranker is not None else top_k
+        result = self.index.search_text(text, top_k=int(candidates_k))
+        hits = result.hits
 
-        if self.reranker and hits:
-            pool = hits[: self.rerank_topn]
-            reranked = self.reranker.rerank(text, pool)
-            rest = [h for h in hits if h not in pool]
-            hits = list(reranked) + rest
+        # 2) (optional) BM25 rerank
+        if self.reranker is not None and hits:
+            reranked: Iterable[Hit] = self.reranker.rerank(query=text, hits=hits[:candidates_k], limit=top_k)
+            hits = list(reranked)
 
-        result.hits = hits[:top_k]
+        # 3) post-filter by collection + cut to top_k
+        hits = self._filter_by_collection(hits, collection)[: int(top_k)]
+        result.hits = hits
         return result
 
-    # ---------- misc ----------
+    # ---------- API helpers ----------
 
-    def resolve_meta(self, chunk_id: str) -> dict[str, Any]:  # pragma: no cover
+    def resolve_meta(self, *, chunk_id: str) -> dict:
+        # best-effort; memory store doesn’t keep a reverse map
         return {}
-
-    def shutdown(self) -> None:  # pragma: no cover
-        return None

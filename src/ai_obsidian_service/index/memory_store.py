@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import Sequence
 
 import numpy as np
 
 from ai_obsidian_service.domain.models import (
+    EmbeddedChunk,
+    EmbeddedQuery,
+    Hit,
     ChunkId,
     DocId,
-    EmbeddedChunk,
-    Hit,
-    SearchResult,
 )
 
 
@@ -23,17 +23,11 @@ class InMemoryVectorStore:
     """
     Simple in-memory vector store (no FAISS). Keeps embeddings and chunk metadata.
     """
-
     dim: int | None = None
 
     # IMPORTANT: with slots=True we must declare attributes as fields
     _vecs: list[np.ndarray] = field(default_factory=list, init=False, repr=False)
     _chunks: list[EmbeddedChunk] = field(default_factory=list, init=False, repr=False)
-
-    @property
-    def count(self) -> int:
-        """Return the number of chunks in the store."""
-        return len(self._chunks)
 
     def upsert(self, chunks: Sequence[EmbeddedChunk]) -> None:
         if not chunks:
@@ -44,11 +38,10 @@ class InMemoryVectorStore:
         self._vecs.extend(list(block))
         self._chunks.extend(list(chunks))
 
-    def search(self, query_vec: np.ndarray, top_k: int) -> SearchResult:
+    def search(self, query: EmbeddedQuery, top_k: int) -> list[Hit]:
         if not self._vecs:
-            return SearchResult(query=None, hits=[])
-
-        q = np.asarray(query_vec, dtype=np.float32)
+            return []
+        q = np.asarray(query.vector, dtype=np.float32)
         sims: list[tuple[float, int]] = []
         for i, v in enumerate(self._vecs):
             sims.append((_dot(q, v), i))
@@ -71,4 +64,4 @@ class InMemoryVectorStore:
                     metadata=(ch.metadata or {}),
                 )
             )
-        return SearchResult(query=None, hits=hits)
+        return hits

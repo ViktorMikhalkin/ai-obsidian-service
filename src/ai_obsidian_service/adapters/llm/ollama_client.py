@@ -1,6 +1,9 @@
 from __future__ import annotations
-from typing import Any, Optional
+
+from typing import Any
+
 import httpx
+
 
 class OllamaError(RuntimeError):
     pass
@@ -25,7 +28,7 @@ class OllamaClient:
         except Exception:
             pass
 
-    def generate(self, prompt: str, *, system: Optional[str] = None) -> str:
+    def generate(self, prompt: str, *, system: str | None = None) -> str:
         payload: dict[str, Any] = {"model": self.model, "prompt": prompt, "stream": False}
         if system:
             payload["system"] = system

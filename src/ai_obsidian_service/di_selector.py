@@ -1,123 +1,94 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
+import logging
 from dataclasses import dataclass
+from typing import Any
 
-import numpy as np
-
-from ai_obsidian_service.adapters.parsers.md_parser import MarkdownParser
+from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
+from ai_obsidian_service.adapters.parsers import default_parsers
 from ai_obsidian_service.adapters.services.search_service import SearchService
-from ai_obsidian_service.di import DummyEmbedder, InMemoryVectorStore
-from ai_obsidian_service.domain.models import EmbeddedChunk, SearchResult
-from ai_obsidian_service.index.embedder import Embedder
+
+from ai_obsidian_service.index.embedding_index import EmbeddingIndex
 from ai_obsidian_service.index.embedder_sentence_transformers import (
     SentenceTransformersEmbedder,
 )
-from ai_obsidian_service.index.embedding_index import EmbeddingIndex
+# NOTE: stores live directly under `index/`, not under `index/vector_store/`
 from ai_obsidian_service.index.faiss_store import FaissVectorStore
-from ai_obsidian_service.index.vector_store import (
-    VectorStore,  # <-- index-layer protocol
-)
-from ai_obsidian_service.ports.interfaces import (
-    Chunker,  # canonical protocol from ports
-)
-from ai_obsidian_service.rerank.bm25 import BM25Reranker
+from ai_obsidian_service.index.memory_store import InMemoryVectorStore
 
-__all__ = ["make_components", "Components", "Chunker"]
+# BM25 is optional: degrade gracefully if module is absent
+try:
+    from ai_obsidian_service.rerank.bm25 import BM25Reranker
+except Exception:  # pragma: no cover
+    BM25Reranker = None  # type: ignore[assignment]
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
 class Components:
-    embedder: Embedder
-    store: VectorStore
+    embedder: Any
+    store: Any
     index: EmbeddingIndex
-    parser: MarkdownParser
     search: SearchService
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    val = os.getenv(name)
-    if val is None:
-        return default
-    return str(val).strip().lower() not in ("0", "false", "no")
-
-
-def _env_int(name: str, default: int) -> int:
-    val = os.getenv(name)
+def _maybe_make_bm25() -> tuple[Any | None, int]:
+    """
+    ENABLE_BM25 = "1" | "0" (default "1")
+    BM25_TOPN   = int       (default 50)
+    """
+    enabled = (os.getenv("ENABLE_BM25", "1") == "1")
+    topn = int(os.getenv("BM25_TOPN", "50"))
+    if not enabled:
+        return None, topn
+    if BM25Reranker is None:
+        log.debug("BM25Reranker module not available; rerank disabled.")
+        return None, topn
     try:
-        return int(val) if val is not None else default
-    except Exception:
-        return default
+        return BM25Reranker(), topn
+    except Exception as e:  # pragma: no cover
+        log.debug("BM25Reranker init failed: %s; rerank disabled.", e)
+        return None, topn
 
 
-class _StoreAdapter(VectorStore):
-    """
-    Adapter to widen InMemoryVectorStore.upsert from list[...] to Sequence[...],
-    so it satisfies the VectorStore protocol expected by EmbeddingIndex.
-    """
-    def __init__(self, inner: InMemoryVectorStore) -> None:
-        self._inner = inner
-        # propagate common attrs (optional)
-        self.dim = getattr(inner, "dim", 384)
-
-    def upsert(self, chunks: Sequence[EmbeddedChunk]) -> None:
-        self._inner.upsert(list(chunks))
-
-    def search(self, query_vec: np.ndarray, top_k: int) -> SearchResult:
-        return self._inner.search(query_vec, top_k)
-
-
-def _make_memory(*, chunker: Chunker) -> Components:
-    embedder: Embedder = DummyEmbedder()
-    store: VectorStore = _StoreAdapter(InMemoryVectorStore())
-    parser = MarkdownParser()
+def _make_memory(*, model_name: str, chunker: SimpleChunker) -> Components:
+    embedder = SentenceTransformersEmbedder(model_name=model_name)
+    store = InMemoryVectorStore(dim=None)  # infer on first upsert
     index = EmbeddingIndex(embedder=embedder, store=store, chunker=chunker)
 
-    enable_bm25 = _env_bool("AIOS_BM25", True)
-    rerank_topn = _env_int("AIOS_RERANK_TOPN", 50)
-    search = SearchService(
-        index=index,
-        parser=parser,
-        reranker=(BM25Reranker() if enable_bm25 else None),
-        rerank_topn=rerank_topn,
-    )
-    return Components(embedder=embedder, store=store, index=index, parser=parser, search=search)
+    parsers = default_parsers()  # MD + PDF + EPUB
+    reranker, rerank_topn = _maybe_make_bm25()
+    search = SearchService(index=index, parsers=parsers, reranker=reranker, rerank_topn=rerank_topn)
+    return Components(embedder=embedder, store=store, index=index, search=search)
 
 
-def _make_faiss(*, chunker: Chunker, model_name: str) -> Components:
-    embedder: Embedder = SentenceTransformersEmbedder(model_name=model_name)
-    store: VectorStore = FaissVectorStore()
-    parser = MarkdownParser()
+def _make_faiss(*, model_name: str, index_dir: str | None, chunker: SimpleChunker) -> Components:
+    embedder = SentenceTransformersEmbedder(model_name=model_name)
+    store = FaissVectorStore(dim=None, index_dir=index_dir)  # infer on first upsert
     index = EmbeddingIndex(embedder=embedder, store=store, chunker=chunker)
 
-    enable_bm25 = _env_bool("AIOS_BM25", True)
-    rerank_topn = _env_int("AIOS_RERANK_TOPN", 50)
-    search = SearchService(
-        index=index,
-        parser=parser,
-        reranker=(BM25Reranker() if enable_bm25 else None),
-        rerank_topn=rerank_topn,
-    )
-    return Components(embedder=embedder, store=store, index=index, parser=parser, search=search)
+    parsers = default_parsers()  # MD + PDF + EPUB
+    reranker, rerank_topn = _maybe_make_bm25()
+    search = SearchService(index=index, parsers=parsers, reranker=reranker, rerank_topn=rerank_topn)
+    return Components(embedder=embedder, store=store, index=index, search=search)
 
 
-def make_components(
-        *,
-        chunker: Chunker,
-        backend: str | None = None,
-        model_name: str | None = None,
-) -> Components:
+def make_components(*, chunker: SimpleChunker | None = None) -> Components:
     """
-    Build iteration-5 components.
-
-    - backend: "memory" | "faiss" (defaults to env VECTOR_STORE_BACKEND or "memory")
-    - model_name: ST model when backend="faiss"
+    Env-driven DI:
+      VECTOR_STORE_BACKEND = memory | faiss
+      EMBEDDINGS_MODEL     = sentence-transformers model (default: all-MiniLM-L6-v2)
+      INDEX_DIR            = path for FAISS persistence (faiss backend)
+      ENABLE_BM25          = 1|0 (default 1)
+      BM25_TOPN            = int (default 50)
     """
-    _backend = (backend or os.getenv("VECTOR_STORE_BACKEND") or "memory").strip().lower()
-    if _backend == "memory":
-        return _make_memory(chunker=chunker)
-    if _backend == "faiss":
-        _model = model_name or os.getenv("ST_MODEL_NAME") or "sentence-transformers/all-MiniLM-L6-v2"
-        return _make_faiss(chunker=chunker, model_name=_model)
-    raise ValueError(f"Unsupported VECTOR_STORE_BACKEND={_backend!r}")
+    backend = (os.getenv("VECTOR_STORE_BACKEND") or "memory").lower()
+    model_name = os.getenv("EMBEDDINGS_MODEL") or "sentence-transformers/all-MiniLM-L6-v2"
+    index_dir = os.getenv("INDEX_DIR")
+    chunker = chunker or SimpleChunker(max_chars=1000, overlap=100)
+
+    if backend == "faiss":
+        return _make_faiss(model_name=model_name, index_dir=index_dir, chunker=chunker)
+    return _make_memory(model_name=model_name, chunker=chunker)

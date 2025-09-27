@@ -1,55 +1,215 @@
 from __future__ import annotations
+
+import asyncio
+import os
+from collections.abc import Callable
+from contextlib import asynccontextmanager
 from datetime import datetime
-import pytest
-from fastapi.testclient import TestClient
-from ai_obsidian_service.api import app as api_app
-from ai_obsidian_service.core import ChunkId, DocId, Hit, Query, SearchResult
+from typing import Any
 
-class _DummyChunk:
-    def __init__(self, text: str, path: str = "notes/A.md", collection: str = "notes", order: int = 0) -> None:
-        self.text = text
-        self.meta = {"path": path, "collection": collection}
-        self.order = order
+from fastapi import FastAPI, status
+from fastapi.responses import JSONResponse
 
-def _search_result_with_one_hit() -> SearchResult:
-    q = Query(text="test query", top_k=5)
-    chunk = _DummyChunk("alpha bravo charlie", path="notes/A.md", collection="notes", order=1)
-    hit = Hit(
-        doc_id=DocId("doc-1"),
-        chunk_id=ChunkId("doc-1:1"),
-        chunk_order=1,
-        score=0.99,
-        snippet="alpha bravo",
-        chunk=chunk,  # type: ignore[arg-type]
+from ai_obsidian_service.adapters.llm.ollama_client import OllamaClient
+from ai_obsidian_service.api.mappers import (
+    hits_to_search_response,
+)
+from ai_obsidian_service.api.schemas import (
+    AnswerRequest,
+    AnswerResponse,
+    InfoSchema,
+    SearchRequest,
+)
+from ai_obsidian_service.config.container import (
+    build_index_corpus,
+    build_search_service,
+)
+from ai_obsidian_service.rag import answer_with_citations
+
+# -----------------------------------------------------------------------------
+# App + DI
+# -----------------------------------------------------------------------------
+
+# Core service (search/index)
+_service = build_search_service(index_dir=os.getenv("INDEX_DIR"))
+
+# Optional Ollama client (if env present)
+def _make_ollama() -> OllamaClient | None:
+    base = os.getenv("OLLAMA_BASE_URL")
+    model = os.getenv("OLLAMA_MODEL")
+    if not base or not model:
+        return None
+    timeout_s = float(os.getenv("OLLAMA_TIMEOUT", "30"))
+    try:
+        return OllamaClient(base_url=base, model=model, timeout_s=timeout_s)
+    except Exception:
+        return None
+
+_LLM = _make_ollama()
+
+# Lock for /index/rebuild
+_rebuild_lock = asyncio.Lock()
+
+# Resolve meta hook for mappers
+_ResolveMeta = Callable[..., dict[str, Any]]
+def _resolve_meta(*, chunk_id: str) -> dict[str, Any]:  # pragma: no cover
+    try:
+        return _service.resolve_meta(chunk_id)  # type: ignore[attr-defined]
+    except Exception:
+        return {}
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup — уже всё сконструировано выше
+    try:
+        yield
+    finally:
+        # shutdown — закрываем ресурсы максимально мягко
+        try:
+            if hasattr(_service, "shutdown"):
+                _service.shutdown()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        try:
+            if hasattr(_service, "index") and hasattr(_service.index, "close"):
+                _service.index.close()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        try:
+            if hasattr(_service, "index") and hasattr(_service.index, "store") and hasattr(_service.index.store, "close"):
+                _service.index.store.close()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+app = FastAPI(title="AI Obsidian Service", version="5.0-lite", lifespan=lifespan)
+
+
+# -----------------------------------------------------------------------------
+# /index/rebuild with lock (503 if already running)
+# -----------------------------------------------------------------------------
+
+@app.post("/index/rebuild")
+async def index_rebuild(root: str):
+    if _rebuild_lock.locked():
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"code": "INDEX_REBUILDING", "message": "Rebuild in progress"},
+        )
+    async with _rebuild_lock:
+        usecase = build_index_corpus(index_dir=os.getenv("INDEX_DIR"))
+        count = await asyncio.to_thread(usecase.run, root)
+        return {"indexed": count, "root": root}
+
+
+# -----------------------------------------------------------------------------
+# /search
+# -----------------------------------------------------------------------------
+
+@app.post("/search")
+def api_search(req: SearchRequest):
+    """
+    Vector search with optional collection filter and (opt.) rerank.
+    """
+    result = _service.search_text(req.query, top_k=req.top_k, collection=req.collection)
+    dto = hits_to_search_response(result.query, result.hits, _resolve_meta)
+    return {
+        "query": dto.query,
+        "top_k": dto.top_k,
+        "hits": [h.model_dump() for h in dto.hits],
+        "retrieved_at": datetime.utcnow().isoformat() + "Z",
+        "total_time_ms": result.total_time_ms,
+    }
+
+
+# -----------------------------------------------------------------------------
+# /answer  (RAG over /search + optional Ollama)
+# -----------------------------------------------------------------------------
+
+@app.post("/answer")
+def api_answer(req: AnswerRequest):
+    """
+    Retrieve → (compose context) → Ask LLM (Ollama) → Cite (compat format).
+    """
+    # 1) retrieve
+    result = _service.search_text(req.query, top_k=req.top_k)
+
+    # 2) текст ответа (через Ollama или мини-фолбек)
+    system_prompt = os.getenv("OLLAMA_SYSTEM_PROMPT")
+    text, _ = answer_with_citations(
+        query=req.query,
+        result=result,
+        llm=_LLM,
+        system_prompt=system_prompt,
     )
-    return SearchResult(query=q, hits=[hit], total_time_ms=1.2, retrieved_at=datetime.now())
 
-@pytest.fixture()
-def client() -> TestClient:
-    return TestClient(api_app.app)
+    # 3) цитаты в «минимальной» форме, как ждут тесты
+    citations: list[dict] = []
+    for h in result.hits[:10]:
+        # безопасно достаём текст чанка
+        chunk_text = getattr(h, "chunk_text", None)
+        if not chunk_text and getattr(h, "chunk", None) is not None:
+            try:
+                chunk_text = h.chunk.text  # type: ignore[attr-defined]
+            except Exception:
+                chunk_text = None
 
-def test_answer_mini_fallback_returns_citations(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(api_app, "_LLM", None, raising=False)
-    monkeypatch.setattr(api_app._service, "search_text", lambda q, top_k=5, collection=None: _search_result_with_one_hit())
-    resp = client.post("/answer", json={"query": "what is alpha?", "top_k": 5, "collection": "notes"})
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert "answer" in data and isinstance(data["answer"], str)
-    assert "citations" in data and isinstance(data["citations"], list)
-    assert len(data["citations"]) >= 1
-    c0 = data["citations"][0]
-    assert c0["chunk_id"] == "doc-1:1"
-    assert c0["doc_path"] == "notes/A.md"
+        # span: поиск snippet в исходном тексте чанка (если есть)
+        snippet = h.snippet or ""
+        span = (-1, -1)
+        if chunk_text:
+            i = chunk_text.find(snippet)
+            span = (i, i + len(snippet)) if i >= 0 and snippet else (-1, -1)
 
-def test_answer_with_ollama_client_used(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    class _FakeLLM:
-        def generate(self, prompt: str, system: str | None = None) -> str:
-            assert "Context:" in prompt and "Question:" in prompt
-            return "LLM answer"
-    monkeypatch.setattr(api_app, "_LLM", _FakeLLM(), raising=False)
-    monkeypatch.setattr(api_app._service, "search_text", lambda q, top_k=5, collection=None: _search_result_with_one_hit())
-    resp = client.post("/answer", json={"query": "what is alpha?", "top_k": 5})
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["answer"] == "LLM answer"
-    assert len(data["citations"]) >= 1
+        # путь из метаданных
+        doc_path = None
+        try:
+            if getattr(h, "chunk", None) is not None and hasattr(h.chunk, "meta"):
+                doc_path = h.chunk.meta.get("path")  # type: ignore[attr-defined]
+        except Exception:
+            doc_path = None
+
+        citations.append(
+            {
+                "doc_path": doc_path,
+                "chunk_id": str(h.chunk_id),
+                "snippet": snippet,
+                "span": span,
+            }
+        )
+
+    return {
+        "query": req.query,
+        "answer": text.strip(),
+        "citations": citations,
+    }
+
+# -----------------------------------------------------------------------------
+# /info
+# -----------------------------------------------------------------------------
+
+@app.get("/info", response_model=InfoSchema)
+def api_info() -> InfoSchema:
+    """
+    Minimal manifest of the current backend.
+    """
+    backend = os.getenv("VECTOR_STORE_BACKEND", "memory")
+    model = None
+    dim = None
+    count = None
+    index_dir = os.getenv("INDEX_DIR")
+
+    try:
+        # embedder info
+        if hasattr(_service.index, "embedder") and hasattr(_service.index.embedder, "model_name"):
+            model = _service.index.embedder.model_name  # type: ignore[attr-defined]
+        # store/index info
+        if hasattr(_service.index, "store") and hasattr(_service.index.store, "dim"):
+            dim = _service.index.store.dim  # type: ignore[attr-defined]
+        if hasattr(_service.index, "store") and hasattr(_service.index.store, "count"):
+            count = _service.index.store.count  # type: ignore[attr-defined]
+        if hasattr(_service.index, "store") and hasattr(_service.index.store, "index_dir"):
+            index_dir = _service.index.store.index_dir or index_dir  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+    return InfoSchema(backend=backend, model=model, dim=dim, count=count, index_dir=index_dir)

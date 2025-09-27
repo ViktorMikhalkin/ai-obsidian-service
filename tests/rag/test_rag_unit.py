@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import pytest
-
 from ai_obsidian_service.core import ChunkId, DocId, Hit, Query, SearchResult
 from ai_obsidian_service.rag import answer_with_citations
 

@@ -14,7 +14,6 @@ from ai_obsidian_service.adapters.parsers import default_parsers
 from ai_obsidian_service.adapters.services.search_service import SearchService
 from ai_obsidian_service.di_selector import make_components
 
-
 # yaml import kept lazy/optional to avoid strict dependency for CLI
 try:
     import yaml as _yaml  # type: ignore[no-redef]

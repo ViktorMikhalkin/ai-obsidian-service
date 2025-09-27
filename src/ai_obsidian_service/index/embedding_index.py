@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+import time
+from datetime import datetime
+from typing import Sequence
 
-from ai_obsidian_service.core import Chunker, Document
+import numpy as np
+
 from ai_obsidian_service.domain.models import (
     Chunk,
     EmbeddedChunk,
@@ -11,31 +13,38 @@ from ai_obsidian_service.domain.models import (
     Query,
     SearchResult,
 )
-from ai_obsidian_service.index.embedder import Embedder
-from ai_obsidian_service.index.vector_store import VectorStore
 
 
-@dataclass(slots=True)
 class EmbeddingIndex:
-    embedder: Embedder
-    store: VectorStore
-    chunker: Chunker
+    def __init__(self, *, embedder, store, chunker) -> None:
+        self.embedder = embedder
+        self.store = store
+        self.chunker = chunker
 
+    # raw chunks arrive from service -> embed them and store in the vector store
     def upsert(self, chunks: Sequence[Chunk]) -> None:
         if not chunks:
             return
-        vecs = [self.embedder.embed(c.text) for c in chunks]
-        self.store.upsert([EmbeddedChunk(chunk=c, embedding=v) for c, v in zip(chunks, vecs, strict=False)])
+        texts = [c.text or "" for c in chunks]
+        vecs = self.embedder.embed(texts)  # -> np.ndarray[float32] (N, D)
+        emb_chunks = [EmbeddedChunk(chunk=c, embedding=v) for c, v in zip(chunks, vecs, strict=False)]
+        self.store.upsert(emb_chunks)
 
-    def index_document(self, doc: Document) -> int:
-        chunks = list(self.chunker.split(doc))
+    # index a single document (convenient shortcut)
+    def index_document(self, doc) -> int:
+        chunks = self.chunker.split(doc)
         self.upsert(chunks)
         return len(chunks)
 
-    def search(self, embedded_query: EmbeddedQuery | str, top_k: int = 5) -> SearchResult:
-        if isinstance(embedded_query, str):
-            q = Query(text=embedded_query, top_k=top_k)
-            q_vec = self.embedder.embed(q.text)
-        else:
-            q_vec = embedded_query.vector
-        return self.store.search(q_vec, top_k=top_k)
+    # text search: embed(query) -> store.search -> SearchResult
+    def search_text(self, text: str, *, top_k: int = 5) -> SearchResult:
+        t0 = time.perf_counter()
+        vec = self.embedder.embed([text])
+        eq = EmbeddedQuery(text=text, vector=np.asarray(vec[0], dtype=np.float32))
+        hits = self.store.search(eq, top_k=int(top_k))
+        return SearchResult(
+            query=Query(text=text, top_k=int(top_k)),
+            hits=hits,
+            total_time_ms=round((time.perf_counter() - t0) * 1000.0, 3),
+            retrieved_at=datetime.utcnow(),
+        )

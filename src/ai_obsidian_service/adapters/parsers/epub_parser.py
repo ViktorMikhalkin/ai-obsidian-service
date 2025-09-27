@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
-from typing import Optional
 
 from ai_obsidian_service.domain.models import Document
 from ai_obsidian_service.utils.ids import doc_hash, source_id
@@ -19,10 +18,10 @@ class EpubParser:
     def can_parse(self, path: str) -> bool:
         return Path(path).suffix.lower() in self.exts
 
-    def parse(self, vault_root: str, absolute_path: str) -> Optional[Document]:
+    def parse(self, vault_root: str, absolute_path: str) -> Document | None:
         try:
-            from ebooklib import epub  # lazy import
             from bs4 import BeautifulSoup
+            from ebooklib import epub  # lazy import
         except Exception:
             # deps not installed
             return None
