@@ -58,8 +58,10 @@ class EpubParser:
 
         return Document(
             id=source_id(rel_posix),
+            path=rel_posix,
             text=full_text,
-            meta={
+            mime="application/epub+zip",
+            metadata={
                 "path": rel_posix,
                 "collection": collection_of(rel_posix),
                 "doc_hash": doc_hash(full_text),

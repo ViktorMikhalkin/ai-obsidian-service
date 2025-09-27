@@ -53,30 +53,30 @@ _rebuild_lock = asyncio.Lock()
 _ResolveMeta = Callable[..., dict[str, Any]]
 def _resolve_meta(*, chunk_id: str) -> dict[str, Any]:  # pragma: no cover
     try:
-        return _service.resolve_meta(chunk_id)  # type: ignore[attr-defined]
+        return _service.resolve_meta(chunk_id)
     except Exception:
         return {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup — уже всё сконструировано выше
+    # startup: all the things are built above
     try:
         yield
     finally:
-        # shutdown — закрываем ресурсы максимально мягко
+        # shutdown: closes resources gracefully
         try:
             if hasattr(_service, "shutdown"):
-                _service.shutdown()  # type: ignore[attr-defined]
+                _service.shutdown()
         except Exception:
             pass
         try:
             if hasattr(_service, "index") and hasattr(_service.index, "close"):
-                _service.index.close()  # type: ignore[attr-defined]
+                _service.index.close()
         except Exception:
             pass
         try:
             if hasattr(_service, "index") and hasattr(_service.index, "store") and hasattr(_service.index.store, "close"):
-                _service.index.store.close()  # type: ignore[attr-defined]
+                _service.index.store.close()
         except Exception:
             pass
 
@@ -144,22 +144,22 @@ def api_answer(req: AnswerRequest):
     # 3) цитаты в «минимальной» форме, как ждут тесты
     citations: list[dict] = []
     for h in result.hits[:10]:
-        # безопасно достаём текст чанка
+        # get chunk text safely
         chunk_text = getattr(h, "chunk_text", None)
         if not chunk_text and getattr(h, "chunk", None) is not None:
             try:
-                chunk_text = h.chunk.text  # type: ignore[attr-defined]
+                chunk_text = h.chunk.text
             except Exception:
                 chunk_text = None
 
-        # span: поиск snippet в исходном тексте чанка (если есть)
+        # span: search for snippet in the input chunk text (if exists)
         snippet = h.snippet or ""
         span = (-1, -1)
         if chunk_text:
             i = chunk_text.find(snippet)
             span = (i, i + len(snippet)) if i >= 0 and snippet else (-1, -1)
 
-        # путь из метаданных
+        # path form metadata
         doc_path = None
         try:
             if getattr(h, "chunk", None) is not None and hasattr(h.chunk, "meta"):
@@ -200,14 +200,14 @@ def api_info() -> InfoSchema:
     try:
         # embedder info
         if hasattr(_service.index, "embedder") and hasattr(_service.index.embedder, "model_name"):
-            model = _service.index.embedder.model_name  # type: ignore[attr-defined]
+            model = _service.index.embedder.model_name
         # store/index info
         if hasattr(_service.index, "store") and hasattr(_service.index.store, "dim"):
-            dim = _service.index.store.dim  # type: ignore[attr-defined]
+            dim = _service.index.store.dim
         if hasattr(_service.index, "store") and hasattr(_service.index.store, "count"):
-            count = _service.index.store.count  # type: ignore[attr-defined]
+            count = _service.index.store.count
         if hasattr(_service.index, "store") and hasattr(_service.index.store, "index_dir"):
-            index_dir = _service.index.store.index_dir or index_dir  # type: ignore[attr-defined]
+            index_dir = _service.index.store.index_dir or index_dir
     except Exception:
         pass
 

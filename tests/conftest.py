@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 import pytest
 
@@ -36,7 +36,8 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 # --- Helpers ------------------------------------------------------------------
 def _iter_files(root: Path, patterns: Iterable[str]) -> Iterable[Path]:
-    import fnmatch, os as _os
+    import fnmatch
+    import os as _os
     for dirpath, _, filenames in _os.walk(root):
         for name in filenames:
             p = Path(dirpath) / name

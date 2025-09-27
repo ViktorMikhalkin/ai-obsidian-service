@@ -3,17 +3,26 @@ from __future__ import annotations
 
 # Set env BEFORE importing the app, so DI uses memory backend
 import os
+
 os.environ.setdefault("VECTOR_STORE_BACKEND", "memory")
 os.environ.setdefault("AIOBS_TEST_MODE", "1")
 os.environ.setdefault("OLLAMA_BASE_URL", "")
 os.environ.setdefault("OLLAMA_MODEL", "")
 
 from datetime import datetime
+
 from fastapi.testclient import TestClient
 
-from ai_obsidian_service.api import app as api_app
 from ai_obsidian_service.adapters.services.search_service import SearchService
-from ai_obsidian_service.domain.models import DocId, ChunkId, Chunk, Hit, Query, SearchResult
+from ai_obsidian_service.api import app as api_app
+from ai_obsidian_service.domain.models import (
+    Chunk,
+    ChunkId,
+    DocId,
+    Hit,
+    Query,
+    SearchResult,
+)
 
 
 def test_answer_endpoint_minimal(monkeypatch):

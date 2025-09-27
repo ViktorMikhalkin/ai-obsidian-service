@@ -48,8 +48,8 @@ ET
     )
 
     # xref
-    body = b"".join(parts)
-    xref_offset = len(body)
+    # body = b"".join(parts)
+    # xref_offset = len(body)
     # object byte offsets (rough but works because we build sequentially)
     # We need exact offsets — so rebuild with measured offsets.
     objs = [

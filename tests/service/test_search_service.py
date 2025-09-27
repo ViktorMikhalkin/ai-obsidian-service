@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+
 from ai_obsidian_service.domain.models import Query
 
 

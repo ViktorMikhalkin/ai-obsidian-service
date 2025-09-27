@@ -62,8 +62,8 @@ class Hit:
     chunk_order: int
     score: float
     snippet: str
-    chunk: Optional[Chunk] = None
-    metadata: Optional[dict[str, Any]] = None
+    chunk: Chunk | None = None
+    metadata: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         # если metadata не задана — аккуратно достать из chunk, если она там есть

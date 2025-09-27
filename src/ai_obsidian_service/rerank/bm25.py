@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from math import log
-from typing import Sequence
+from typing import Any
 
 from ai_obsidian_service.domain.models import Hit
 
@@ -15,14 +16,28 @@ def _tokenize(text: str) -> list[str]:
 
 
 def _hit_text(h: Hit) -> str:
-    # Prefer full chunk text; fallback to snippet; finally try path in metadata
-    if getattr(h, "chunk", None) is not None and getattr(h.chunk, "text", None):
-        return h.chunk.text
-    if getattr(h, "snippet", None):
-        return h.snippet
-    meta = getattr(h, "metadata", None) or (getattr(h, "chunk", None).metadata if getattr(h, "chunk", None) else None)
-    if isinstance(meta, dict):
-        return str(meta.get("path", "")) or ""
+    # Prefer full chunk text
+    chunk = getattr(h, "chunk", None)
+    if chunk is not None:
+        text = getattr(chunk, "text", None)
+        if isinstance(text, str):
+            return text
+
+    # Fallback to snippet
+    snippet = getattr(h, "snippet", None)
+    if isinstance(snippet, str):
+        return snippet
+
+    # Fallback to metadata["path"]
+    metadata: Any = getattr(h, "metadata", None)
+    if metadata is None and chunk is not None:
+        metadata = getattr(chunk, "metadata", None)
+
+    if isinstance(metadata, dict):
+        path = metadata.get("path")
+        if isinstance(path, str):
+            return path
+
     return ""
 
 

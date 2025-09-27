@@ -26,10 +26,10 @@ def build_search_service(index_dir: str | None = None) -> SearchService:
     # Ensure the service knows about *all* parsers
     if hasattr(service, "parsers"):
         # Some versions expose `.parsers` explicitly
-        service.parsers = parsers  # type: ignore[attr-defined]
+        service.parsers = parsers
     elif hasattr(service, "set_parsers"):
         # Or a setter is available
-        service.set_parsers(parsers)  # type: ignore[attr-defined]
+        service.set_parsers(parsers)
     else:
         # As a last resort, keep compatibility with older signatures that accepted a single parser
         # by setting a primary parser and letting the service select internally if it supports it.
