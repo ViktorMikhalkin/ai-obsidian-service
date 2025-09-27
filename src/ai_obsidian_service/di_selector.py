@@ -55,7 +55,7 @@ def _maybe_make_bm25() -> tuple[Any | None, int]:
 
 def _make_memory(*, model_name: str, chunker: SimpleChunker) -> Components:
     embedder = SentenceTransformersEmbedder(model_name=model_name)
-    store = InMemoryVectorStore(dim=None)  # infer on first upsert
+    store = InMemoryVectorStore(dim=None)
     index = EmbeddingIndex(embedder=embedder, store=store, chunker=chunker)
 
     parsers = default_parsers()  # MD + PDF + EPUB
@@ -66,7 +66,7 @@ def _make_memory(*, model_name: str, chunker: SimpleChunker) -> Components:
 
 def _make_faiss(*, model_name: str, index_dir: str | None, chunker: SimpleChunker) -> Components:
     embedder = SentenceTransformersEmbedder(model_name=model_name)
-    store = FaissVectorStore(dim=None, index_dir=index_dir)  # infer on first upsert
+    store = FaissVectorStore(dim=None)
     index = EmbeddingIndex(embedder=embedder, store=store, chunker=chunker)
 
     parsers = default_parsers()  # MD + PDF + EPUB

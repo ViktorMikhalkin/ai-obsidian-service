@@ -18,7 +18,6 @@ from ai_obsidian_service.domain.models import (
 class DocumentParser(Protocol):
     def can_parse(self, path: str) -> bool: ...
     def parse(self, path: str) -> Document: ...
-    # parse_text остаётся в реализациях; из протокола убираем
 
 @runtime_checkable
 class Chunker(Protocol):

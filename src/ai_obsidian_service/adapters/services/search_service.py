@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 
 from ai_obsidian_service.domain.models import Hit, SearchResult
+from ai_obsidian_service.ports.interfaces import DocumentParser
+from ai_obsidian_service.rerank.bm25 import BM25Reranker
 
 
 class SearchService:
@@ -18,8 +20,8 @@ class SearchService:
             self,
             *,
             index,
-            parsers: Sequence[object],
-            reranker: object | None = None,
+            parsers: Sequence[DocumentParser],
+            reranker: BM25Reranker | None = None,
             rerank_topn: int = 50,
     ) -> None:
         self.index = index
@@ -62,7 +64,7 @@ class SearchService:
         doc = parser.parse(vault_root, path)
         if doc is None:
             return 0
-        return self.index.index_document(doc)
+        return int(self.index.index_document(doc))
 
     # ---------- search ----------
 

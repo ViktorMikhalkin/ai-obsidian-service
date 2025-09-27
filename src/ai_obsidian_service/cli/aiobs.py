@@ -126,7 +126,7 @@ def _build_search_service(index_dir: str | None, *, max_chars: int, overlap: int
 
     # Attach the full parser set to the service
     if hasattr(service, "parsers"):
-        service.parsers = parsers  # type: ignore[attr-defined]
+        service.parsers = parsers
     elif hasattr(service, "set_parsers"):
         service.set_parsers(parsers)  # type: ignore[attr-defined]
     else:

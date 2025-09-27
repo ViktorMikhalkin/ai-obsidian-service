@@ -40,13 +40,13 @@ def make_components(*, chunker: SimpleChunker | None = None) -> Components:
     parsers = default_parsers()  # [MarkdownParser(), PdfParser(), EpubParser()]
 
     # 3) Inject parsers into the SearchService (supporting multiple shapes for backward-compat)
-    search: SearchService = base.search  # type: ignore[assignment]
+    search: SearchService = base.search
     if hasattr(search, "parsers"):
         # Newer API: explicit .parsers
-        search.parsers = parsers  # type: ignore[attr-defined]
+        search.parsers = parsers
     elif hasattr(search, "set_parsers"):
         # Alternative API: setter
-        search.set_parsers(parsers)  # type: ignore[attr-defined]
+        search.set_parsers(parsers)
     else:
         # Fallback for very old single-parser API
         try:

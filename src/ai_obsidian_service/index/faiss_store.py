@@ -164,7 +164,15 @@ class FaissVectorStore(VectorStore):
         hits: list[Hit] = []
         for i, cid in enumerate(ids):
             ec = self._chunks[cid]
-            hits.append(Hit(chunk=ec.chunk, score=float(scores[0][i])))
+            hits.append(Hit(
+                doc_id=ec.chunk.doc_id,
+                chunk_id=ec.chunk.id,
+                chunk_order=ec.chunk.order,
+                score=float(scores[0][i]),
+                snippet=ec.chunk.text[:100] + "..." if len(ec.chunk.text) > 100 else ec.chunk.text,
+                chunk=ec.chunk,
+                metadata=ec.chunk.metadata
+            ))
 
         return SearchResult(query=None, hits=hits)
 

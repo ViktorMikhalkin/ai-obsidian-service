@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import pytest
+
 from ai_obsidian_service.api.mappers import hits_to_search_response
-from ai_obsidian_service.domain.models import Chunk, Hit, Query, DocId, ChunkId
+from ai_obsidian_service.domain.models import Chunk, ChunkId, DocId, Hit, Query
 
 
 def test_hits_to_search_response_maps_fields():
