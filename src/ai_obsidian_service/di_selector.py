@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
-from ai_obsidian_service.adapters.parsers import default_parsers
+from ai_obsidian_service.adapters.parsers import all_parsers
 from ai_obsidian_service.adapters.services.search_service import SearchService
 from ai_obsidian_service.index.embedder_sentence_transformers import (
     SentenceTransformersEmbedder,
@@ -58,7 +58,7 @@ def _make_memory(*, model_name: str, chunker: SimpleChunker) -> Components:
     store = InMemoryVectorStore(dim=None)
     index = EmbeddingIndex(embedder=embedder, store=store, chunker=chunker)
 
-    parsers = default_parsers()  # MD + PDF + EPUB
+    parsers = all_parsers()  # MD + PDF + EPUB
     reranker, rerank_topn = _maybe_make_bm25()
     search = SearchService(index=index, parsers=parsers, reranker=reranker, rerank_topn=rerank_topn)
     return Components(embedder=embedder, store=store, index=index, search=search)
@@ -69,7 +69,7 @@ def _make_faiss(*, model_name: str, index_dir: str | None, chunker: SimpleChunke
     store = FaissVectorStore(dim=None)
     index = EmbeddingIndex(embedder=embedder, store=store, chunker=chunker)
 
-    parsers = default_parsers()  # MD + PDF + EPUB
+    parsers = all_parsers()  # MD + PDF + EPUB
     reranker, rerank_topn = _maybe_make_bm25()
     search = SearchService(index=index, parsers=parsers, reranker=reranker, rerank_topn=rerank_topn)
     return Components(embedder=embedder, store=store, index=index, search=search)

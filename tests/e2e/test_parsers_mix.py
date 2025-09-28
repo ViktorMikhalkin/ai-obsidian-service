@@ -96,7 +96,7 @@ def _make_epub(path: Path, text: str) -> None:
     Requires ebooklib.
     """
     try:
-        from ebooklib import epub  # type: ignore
+        from ebooklib import epub
     except Exception:
         pytest.skip("ebooklib is not available; skipping EPUB part of the e2e test")
 
@@ -112,7 +112,7 @@ def _make_epub(path: Path, text: str) -> None:
     book.add_item(epub.EpubNcx())
     book.add_item(epub.EpubNav())
 
-    epub.write_epub(str(path), book)  # type: ignore
+    epub.write_epub(str(path), book)
 
 
 @pytest.fixture

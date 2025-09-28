@@ -10,13 +10,13 @@ from typing import Any
 import typer
 
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
-from ai_obsidian_service.adapters.parsers import default_parsers
+from ai_obsidian_service.adapters.parsers import all_parsers
 from ai_obsidian_service.adapters.services.search_service import SearchService
 from ai_obsidian_service.di_selector import make_components
 
 # yaml import kept lazy/optional to avoid strict dependency for CLI
 try:
-    import yaml as _yaml  # type: ignore[no-redef]
+    import yaml as _yaml
 except Exception:  # pragma: no cover
     _yaml = None  # type: ignore[assignment]
 
@@ -119,7 +119,7 @@ def _build_search_service(index_dir: str | None, *, max_chars: int, overlap: int
       - chunker : SimpleChunker(max_chars, overlap)
       - backend : make_components() selects embedder + store via env
     """
-    parsers = default_parsers()
+    parsers = all_parsers()
     chunker = SimpleChunker(max_chars=max_chars, overlap=overlap)
     di = make_components(chunker=chunker)
     service: SearchService = di.search

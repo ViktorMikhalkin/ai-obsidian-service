@@ -163,7 +163,7 @@ def api_answer(req: AnswerRequest):
         doc_path = None
         try:
             if getattr(h, "chunk", None) is not None and hasattr(h.chunk, "meta"):
-                doc_path = h.chunk.meta.get("path")  # type: ignore[attr-defined]
+                doc_path = h.chunk.meta.get("path")
         except Exception:
             doc_path = None
 

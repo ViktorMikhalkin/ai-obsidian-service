@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
-from ai_obsidian_service.adapters.parsers import default_parsers
+from ai_obsidian_service.adapters.parsers import all_parsers
 from ai_obsidian_service.adapters.services.search_service import SearchService
 from ai_obsidian_service.di_selector import make_components as _base_make_components
 
@@ -37,7 +37,7 @@ def make_components(*, chunker: SimpleChunker | None = None) -> Components:
     base = _base_make_components(chunker=chunker or SimpleChunker(max_chars=1000, overlap=100))
 
     # 2) Equal-footing parser set
-    parsers = default_parsers()  # [MarkdownParser(), PdfParser(), EpubParser()]
+    parsers = all_parsers()  # [MarkdownParser(), PdfParser(), EpubParser()]
 
     # 3) Inject parsers into the SearchService (supporting multiple shapes for backward-compat)
     search: SearchService = base.search

@@ -16,7 +16,7 @@ os.environ.setdefault("OLLAMA_MODEL", "")
 # --- Capability probes & skips for FAISS CPU (integration tests) --------------
 def _has_faiss_cpu() -> bool:
     try:
-        import faiss  # type: ignore
+        import faiss
         _ = faiss.IndexFlatL2(2)
         return True
     except Exception:
@@ -68,7 +68,7 @@ def search_service(mini_vault: Path):
     Build SearchService (memory backend) and index the mini_vault (MD only for unit).
     """
     from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
-    from ai_obsidian_service.adapters.parsers import default_parsers
+    from ai_obsidian_service.adapters.parsers import all_parsers
     from ai_obsidian_service.di_selector import make_components
 
     chunker = SimpleChunker(max_chars=1000, overlap=100)
@@ -76,7 +76,7 @@ def search_service(mini_vault: Path):
     service = di.search  # unified SearchService
 
     try:
-        service.parsers = default_parsers()  # type: ignore[attr-defined]
+        service.parsers = all_parsers()
     except Exception:
         pass
 
@@ -93,7 +93,7 @@ def empty_search_service():
     Useful for tests that need a truly empty index.
     """
     from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
-    from ai_obsidian_service.adapters.parsers import default_parsers
+    from ai_obsidian_service.adapters.parsers import all_parsers
     from ai_obsidian_service.di_selector import make_components
 
     chunker = SimpleChunker(max_chars=1000, overlap=100)
@@ -101,7 +101,7 @@ def empty_search_service():
     service = di.search
 
     try:
-        service.parsers = default_parsers()  # type: ignore[attr-defined]
+        service.parsers = all_parsers()
     except Exception:
         pass
 
