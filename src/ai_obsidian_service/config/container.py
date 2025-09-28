@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
-from ai_obsidian_service.adapters.parsers import default_parsers
+from ai_obsidian_service.adapters.parsers import all_parsers
 from ai_obsidian_service.adapters.services.search_service import SearchService
 from ai_obsidian_service.di_selector import make_components
 from ai_obsidian_service.usecases.index_corpus import IndexCorpus
@@ -18,7 +18,7 @@ def build_search_service(index_dir: str | None = None) -> SearchService:
       - index_dir may be used by the underlying store if it persists to disk.
       - we attach the parsers set directly to the returned service.
     """
-    parsers = default_parsers()
+    parsers = all_parsers()
     chunker = SimpleChunker(max_chars=1000, overlap=100)
     di = make_components(chunker=chunker)
     service: SearchService = di.search  # returned by DI factory
@@ -46,7 +46,7 @@ def build_index_corpus(index_dir: str | None = None) -> IndexCorpus:
     Build the use-case for bulk indexing a directory. It delegates actual parsing/chunking/upsert
     to the SearchService built above.
     """
-    parsers = default_parsers()
+    parsers = all_parsers()
     chunker = SimpleChunker(max_chars=1000, overlap=100)
     service = build_search_service(index_dir=index_dir)
     return IndexCorpus(parsers=parsers, chunker=chunker, service=service)

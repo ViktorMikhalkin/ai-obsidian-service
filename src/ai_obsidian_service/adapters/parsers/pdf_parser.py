@@ -50,7 +50,9 @@ class PdfParser:
         return Document(
             id=source_id(rel_posix),
             text=full_text,
-            meta={
+            path=rel_posix,
+            mime="application/pdf",
+            metadata={
                 "path": rel_posix,
                 "collection": collection_of(rel_posix),
                 "doc_hash": doc_hash(full_text),
