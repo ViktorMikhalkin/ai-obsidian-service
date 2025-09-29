@@ -63,13 +63,29 @@ def _print_pydantic(model: SearchResponse) -> None:
     print(json.dumps(data, ensure_ascii=False, indent=2))
 
 
+def _shutdown_service(service: SearchService | None) -> None:
+    """Properly shutdown service and its components."""
+    if service is None:
+        return
+
+    try:
+        # Try to shutdown the store if it has a close method
+        if hasattr(service, "index") and hasattr(service.index, "store") and hasattr(service.index.store, "close"):
+            service.index.store.close()
+    except Exception:
+        pass
+
+    try:
+        # Try to close the index if it has a close method
+        if hasattr(service, "index") and hasattr(service.index, "close"):
+            service.index.close()
+    except Exception:
+        pass
+
+
 def _install_sigterm(service: SearchService | None) -> None:
     def _handler(_sig: int, _frame) -> None:
-        if service is not None:
-            try:
-                service.shutdown()
-            except Exception:
-                pass
+        _shutdown_service(service)
         sys.exit(0)
 
     for s in (signal.SIGINT, signal.SIGTERM):
@@ -109,7 +125,7 @@ def cmd_index_file(args: argparse.Namespace) -> int:
         print(f"[index-file] chunks: {chunks}  path: {path}")
         return 0
     finally:
-        service.shutdown()
+        _shutdown_service(service)
 
 
 def cmd_search(args: argparse.Namespace) -> int:
@@ -123,15 +139,18 @@ def cmd_search(args: argparse.Namespace) -> int:
 
         # Build a typed API response; do NOT assign a dict back to `result`.
         # Also, pass `resolve_meta` correctly (it expects chunk_id: str).
+        def resolve_meta_wrapper(chunk_id: str) -> dict[str, Any]:
+            return service.resolve_meta(chunk_id=chunk_id)
+
         resp: SearchResponse = hits_to_search_response(
             Query(text=args.query, top_k=args.top_k),
             result.hits,
-            service.resolve_meta,
+            resolve_meta_wrapper,
         )
         _print_pydantic(resp)
         return 0
     finally:
-        service.shutdown()
+        _shutdown_service(service)
 
 
 def cmd_status(_args: argparse.Namespace) -> int:
@@ -168,7 +187,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="ai-obsidian",
-        description="AI↔Obsidian service entrypoint",
+        description="AI→Obsidian service entrypoint",
     )
     p.add_argument("--index-dir", default=None, help="Directory for FAISS index (optional)")
 

@@ -16,7 +16,9 @@ def _compose_context(result: SearchResult, *, max_snippets: int = 8) -> str:
         path = None
         try:
             if hasattr(h, "chunk") and h.chunk is not None and hasattr(h.chunk, "meta"):
-                path = h.chunk.meta.get("path")
+                meta = h.chunk.meta
+                if meta is not None:
+                    path = meta.get("path")
         except Exception:
             path = None
         label = f"[{path or h.doc_id}:{h.chunk_id}]"
@@ -50,7 +52,7 @@ def _mini_answer_from_snippets(result: SearchResult) -> str:
         if len(bullets) >= 5:
             break
     header = f"Based on {len(hits)} retrieved chunks"
-    if result.query.top_k:
+    if result.query and result.query.top_k:
         header += f" (top_k={result.query.top_k})"
     return header + ":\n" + "\n".join(bullets) if bullets else header + "."
 
@@ -74,7 +76,9 @@ def answer_with_citations(
         doc_path = None
         try:
             if hasattr(h, "chunk") and h.chunk is not None and hasattr(h.chunk, "meta"):
-                doc_path = h.chunk.meta.get("path")
+                meta = h.chunk.meta
+                if meta is not None:
+                    doc_path = meta.get("path")
         except Exception:
             doc_path = None
         citations.append(
@@ -84,7 +88,8 @@ def answer_with_citations(
     if llm is None:
         return (_mini_answer_from_snippets(result), citations)
 
-    ctx = _compose_context(result, max_snippets=max(1, result.query.top_k or 8))
+    top_k = result.query.top_k if result.query else 8
+    ctx = _compose_context(result, max_snippets=max(1, top_k or 8))
     if not ctx.strip():
         return ("I couldn't find relevant context. Try reindexing your vault or widening the query.", citations)
     prompt = _default_prompt(query, ctx)

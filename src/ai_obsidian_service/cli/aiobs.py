@@ -23,7 +23,7 @@ except Exception:  # pragma: no cover
 yaml: Any | None = _yaml  # keep mypy happy
 
 
-app = typer.Typer(help="AI↔Obsidian CLI (iteration-5, MD+PDF+EPUB)")
+app = typer.Typer(help="AI→Obsidian CLI (iteration-5, MD+PDF+EPUB)")
 
 
 # ---------- small logging helpers ----------
@@ -58,7 +58,8 @@ def _fmt_eta(seconds: float) -> str:
 
 def _yaml_dump(obj: dict) -> str:
     if yaml is not None:
-        return yaml.safe_dump(obj, sort_keys=False, allow_unicode=True)
+        result = yaml.safe_dump(obj, sort_keys=False, allow_unicode=True)
+        return str(result)  # Ensure we return a string
     import json as _json
     return _json.dumps(obj, ensure_ascii=False, indent=2)
 
@@ -128,7 +129,7 @@ def _build_search_service(index_dir: str | None, *, max_chars: int, overlap: int
     if hasattr(service, "parsers"):
         service.parsers = parsers
     elif hasattr(service, "set_parsers"):
-        service.set_parsers(parsers)  # type: ignore[attr-defined]
+        service.set_parsers(parsers)
     else:
         # Backward-compat: expose first parser if only single-parser API exists
         try:

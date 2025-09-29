@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import cast, Sequence
+from typing import cast
 
-from ai_obsidian_service.adapters.parsers import PdfParser, EpubParser
+from ai_obsidian_service.adapters.parsers.epub_parser import EpubParser
 from ai_obsidian_service.adapters.parsers.md_parser import MarkdownParser
+from ai_obsidian_service.adapters.parsers.pdf_parser import PdfParser
 from ai_obsidian_service.adapters.services.search_service import SearchService
 from ai_obsidian_service.core import Chunker
 from ai_obsidian_service.index.embedder_sentence_transformers import (

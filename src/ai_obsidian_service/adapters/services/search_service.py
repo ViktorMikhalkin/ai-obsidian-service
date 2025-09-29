@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 
 from ai_obsidian_service.domain.models import Hit, SearchResult
+from ai_obsidian_service.index import EmbeddingIndex
 from ai_obsidian_service.ports.interfaces import DocumentParser
 from ai_obsidian_service.rerank.bm25 import BM25Reranker
 
@@ -19,7 +20,7 @@ class SearchService:
     def __init__(
             self,
             *,
-            index,
+            index: EmbeddingIndex,
             parsers: Sequence[DocumentParser],
             reranker: BM25Reranker | None = None,
             rerank_topn: int = 50,
@@ -82,7 +83,7 @@ class SearchService:
     def search_text(self, text: str, top_k: int = 5, collection: str | None = None) -> SearchResult:
         # 1) retrieve topN from vector index
         candidates_k = max(self.rerank_topn, top_k) if self.reranker is not None else top_k
-        result = self.index.search_text(text, top_k=int(candidates_k))
+        result: SearchResult = self.index.search_text(text, top_k=int(candidates_k))
         hits = result.hits
 
         # 2) (optional) BM25 rerank
@@ -98,5 +99,5 @@ class SearchService:
     # ---------- API helpers ----------
 
     def resolve_meta(self, *, chunk_id: str) -> dict:
-        # best-effort; memory store doesn’t keep a reverse map
+        # best-effort; memory store doesn't keep a reverse map
         return {}
