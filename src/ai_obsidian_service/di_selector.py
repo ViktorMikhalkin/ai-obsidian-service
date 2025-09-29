@@ -20,8 +20,9 @@ from ai_obsidian_service.index.memory_store import InMemoryVectorStore
 # BM25 is optional: degrade gracefully if module is absent
 try:
     from ai_obsidian_service.rerank.bm25 import BM25Reranker
+    BM25RerankerType: type[Any] | None = BM25Reranker
 except Exception:  # pragma: no cover
-    BM25Reranker = None  # type: ignore[assignment]
+    BM25RerankerType = None
 
 log = logging.getLogger(__name__)
 
@@ -43,11 +44,11 @@ def _maybe_make_bm25() -> tuple[Any | None, int]:
     topn = int(os.getenv("BM25_TOPN", "50"))
     if not enabled:
         return None, topn
-    if BM25Reranker is None:
+    if BM25RerankerType is None:
         log.debug("BM25Reranker module not available; rerank disabled.")
         return None, topn
     try:
-        return BM25Reranker(), topn
+        return BM25RerankerType(), topn
     except Exception as e:  # pragma: no cover
         log.debug("BM25Reranker init failed: %s; rerank disabled.", e)
         return None, topn

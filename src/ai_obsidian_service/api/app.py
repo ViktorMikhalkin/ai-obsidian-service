@@ -23,6 +23,7 @@ from ai_obsidian_service.config.container import (
     build_index_corpus,
     build_search_service,
 )
+from ai_obsidian_service.domain.models import Query
 from ai_obsidian_service.rag import answer_with_citations
 
 # -----------------------------------------------------------------------------
@@ -51,9 +52,9 @@ _rebuild_lock = asyncio.Lock()
 
 # Resolve meta hook for mappers
 _ResolveMeta = Callable[..., dict[str, Any]]
-def _resolve_meta(*, chunk_id: str) -> dict[str, Any]:  # pragma: no cover
+def _resolve_meta(chunk_id: str) -> dict[str, Any]:  # pragma: no cover
     try:
-        return _service.resolve_meta(chunk_id)
+        return _service.resolve_meta(chunk_id=chunk_id)
     except Exception:
         return {}
 
@@ -110,7 +111,11 @@ def api_search(req: SearchRequest):
     Vector search with optional collection filter and (opt.) rerank.
     """
     result = _service.search_text(req.query, top_k=req.top_k, collection=req.collection)
-    dto = hits_to_search_response(result.query, result.hits, _resolve_meta)
+
+    # Ensure we have a valid query object
+    query = result.query or Query(text=req.query, top_k=req.top_k)
+
+    dto = hits_to_search_response(query, result.hits, _resolve_meta)
     return {
         "query": dto.query,
         "top_k": dto.top_k,
@@ -148,7 +153,9 @@ def api_answer(req: AnswerRequest):
         chunk_text = getattr(h, "chunk_text", None)
         if not chunk_text and getattr(h, "chunk", None) is not None:
             try:
-                chunk_text = h.chunk.text
+                chunk = h.chunk
+                if chunk is not None:
+                    chunk_text = chunk.text
             except Exception:
                 chunk_text = None
 
@@ -159,11 +166,14 @@ def api_answer(req: AnswerRequest):
             i = chunk_text.find(snippet)
             span = (i, i + len(snippet)) if i >= 0 and snippet else (-1, -1)
 
-        # path form metadata
+        # path from metadata
         doc_path = None
         try:
-            if getattr(h, "chunk", None) is not None and hasattr(h.chunk, "meta"):
-                doc_path = h.chunk.meta.get("path")
+            chunk = getattr(h, "chunk", None)
+            if chunk is not None and hasattr(chunk, "meta"):
+                meta = chunk.meta
+                if meta is not None:
+                    doc_path = meta.get("path")
         except Exception:
             doc_path = None
 

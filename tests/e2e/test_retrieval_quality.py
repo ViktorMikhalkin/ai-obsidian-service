@@ -4,8 +4,6 @@ from math import log2
 
 import pytest
 
-from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
-from ai_obsidian_service.adapters.parsers.md_parser import MarkdownParser
 from ai_obsidian_service.config.container import build_search_service
 
 # ---- tiny golden truth (doc path, chunk_order=0)
@@ -32,8 +30,11 @@ def ndcg_at_k(pred: list[tuple[str,int]], truth: set[tuple[str,int]], k: int) ->
 def service(tmp_path_factory: pytest.TempPathFactory):
     # Build a real service with markdown parser + simple chunker; memory vector store per env
     s = build_search_service(index_dir=None)
-    s.parser = MarkdownParser()
-    s.chunker = SimpleChunker(max_chars=512, overlap=32)
+
+    # Note: SearchService has 'parsers' (list), not 'parser' (single)
+    # and chunker is part of the index, not the service directly
+    # The service is already configured with appropriate parsers and chunker
+    # from build_search_service, so we don't need to override them
 
     # create mini vault
     root = tmp_path_factory.mktemp("vault")
