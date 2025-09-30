@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, status, HTTPException, Body
+from fastapi import Body, FastAPI, HTTPException, status
 from fastapi.responses import JSONResponse
 
 from ai_obsidian_service.adapters.llm.ollama_client import OllamaClient

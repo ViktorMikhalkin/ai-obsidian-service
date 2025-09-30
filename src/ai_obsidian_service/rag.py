@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+
 from ai_obsidian_service.adapters.llm.ollama_client import OllamaClient, OllamaError
 from ai_obsidian_service.domain.models import SearchResult
 
