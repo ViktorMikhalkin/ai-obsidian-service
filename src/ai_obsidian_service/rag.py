@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from ai_obsidian_service.adapters.llm.ollama_client import OllamaClient, OllamaError
 from ai_obsidian_service.domain.models import SearchResult
 
@@ -22,9 +23,16 @@ def _compose_context(result: SearchResult, *, max_snippets: int = 8) -> str:
         except Exception:
             path = None
         label = f"[{path or h.doc_id}:{h.chunk_id}]"
-        snip = (h.snippet or "").strip().replace("\n", " ")
-        if snip:
-            lines.append(f"{label} {snip}")
+
+        # Use full chunk text instead of truncated snippet
+        text = ""
+        if hasattr(h, "chunk") and h.chunk is not None:
+            text = (h.chunk.text or "").strip().replace("\n", " ")
+        elif h.snippet:
+            text = h.snippet.strip().replace("\n", " ")
+
+        if text:
+            lines.append(f"{label} {text}")
     return "\n".join(lines)
 
 def _default_prompt(query: str, context: str) -> str:
@@ -33,6 +41,14 @@ def _default_prompt(query: str, context: str) -> str:
         "If the answer is not present, say you don't know.\n\n"
         f"Question:\n{query}\n\nContext:\n{context}\n\nAnswer:\n"
     )
+
+def _clean_llm_response(text: str) -> str:
+    """Remove thinking tags and other artifacts from LLM response."""
+    # Remove <think>...</think> blocks (case insensitive, handles multiline)
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.IGNORECASE | re.DOTALL)
+    # Clean up any extra whitespace
+    text = re.sub(r'\n\s*\n\s*\n', '\n\n', text)
+    return text.strip()
 
 def _mini_answer_from_snippets(result: SearchResult) -> str:
     hits = result.hits[:]
@@ -95,6 +111,8 @@ def answer_with_citations(
     prompt = _default_prompt(query, ctx)
     try:
         text = llm.generate(prompt, system=system_prompt)
+        # Clean up LLM response (remove thinking tags, etc.)
+        text = _clean_llm_response(text)
     except OllamaError:
         text = _mini_answer_from_snippets(result)
     return (text.strip(), citations)

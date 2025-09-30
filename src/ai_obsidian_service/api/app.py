@@ -5,9 +5,10 @@ import os
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, status
+from fastapi import FastAPI, status, HTTPException, Body
 from fastapi.responses import JSONResponse
 
 from ai_obsidian_service.adapters.llm.ollama_client import OllamaClient
@@ -89,16 +90,44 @@ app = FastAPI(title="AI Obsidian Service", version="5.0-lite", lifespan=lifespan
 # -----------------------------------------------------------------------------
 
 @app.post("/index/rebuild")
-async def index_rebuild(root: str):
+async def index_rebuild(root: str = Body(..., embed=True)):
+    """Rebuild index from a root directory. Expects JSON body: {"root": "/path/to/dir"}"""
+
+    if not root:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "MISSING_ROOT", "message": "Provide JSON body with 'root' field"}
+        )
+
+    p = Path(root)
+    if not p.exists():
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "ROOT_NOT_FOUND", "message": f"Path not found: {root}"}
+        )
+    if not p.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "ROOT_NOT_DIR", "message": f"Path is not a directory: {root}"}
+        )
+
     if _rebuild_lock.locked():
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={"code": "INDEX_REBUILDING", "message": "Rebuild in progress"},
         )
+
     async with _rebuild_lock:
-        usecase = build_index_corpus(index_dir=os.getenv("INDEX_DIR"))
-        count = await asyncio.to_thread(usecase.run, root)
-        return {"indexed": count, "root": root}
+        try:
+            usecase = build_index_corpus(index_dir=os.getenv("INDEX_DIR"))
+            count = await asyncio.to_thread(usecase.run, str(p))
+            return {"indexed": count, "root": str(p)}
+        except Exception as e:
+            import traceback
+            return JSONResponse(
+                status_code=500,
+                content={"code": "REBUILD_FAILED", "message": str(e), "trace": traceback.format_exc()},
+            )
 
 
 # -----------------------------------------------------------------------------

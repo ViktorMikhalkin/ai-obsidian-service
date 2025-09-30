@@ -84,7 +84,7 @@ class SearchService:
         # 1) retrieve topN from vector index
         candidates_k = max(self.rerank_topn, top_k) if self.reranker is not None else top_k
         result: SearchResult = self.index.search_text(text, top_k=int(candidates_k))
-        hits = result.hits
+        hits = list(result.hits)
 
         # 2) (optional) BM25 rerank
         if self.reranker is not None and hits:

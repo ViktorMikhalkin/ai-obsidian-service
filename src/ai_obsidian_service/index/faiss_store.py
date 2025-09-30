@@ -85,6 +85,11 @@ class FaissVectorStore(VectorStore):
             if self.dim != dim:
                 raise ValueError(f"Vector dimension mismatch: store={self.dim}, got={dim}") from None
 
+    @property
+    def count(self) -> int:
+        """Return the number of chunks in the store."""
+        return len(self._ids)
+
     # -------- VectorStore API --------
 
     def upsert(self, chunks: Sequence[EmbeddedChunk]) -> None:
