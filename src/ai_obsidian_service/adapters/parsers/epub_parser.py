@@ -41,16 +41,27 @@ class EpubParser:
 
         parts: list[str] = []
         for item in book.get_items():
-            # ITEM_DOCUMENT is HTML chapter
-            if getattr(item, "get_type", None) and item.get_type() == epub.ITEM_DOCUMENT:
-                try:
+            # Check if this is a document item (HTML content)
+            # In modern ebooklib, use item.get_type() == ebooklib.ITEM_DOCUMENT
+            # or check the media_type for HTML
+            try:
+                # Method 1: Check media type for HTML content
+                media_type = getattr(item, 'media_type', '')
+                is_html = media_type in ('application/xhtml+xml', 'text/html')
+
+                # Method 2: Try get_type() if available
+                if not is_html and hasattr(item, 'get_type'):
+                    # ITEM_DOCUMENT value is 9 in ebooklib
+                    is_html = item.get_type() == 9
+
+                if is_html:
                     html = item.get_content().decode("utf-8", errors="ignore")
                     soup = BeautifulSoup(html, "html.parser")
                     txt = soup.get_text(separator=" ", strip=True)
                     if txt:
                         parts.append(txt)
-                except Exception:
-                    continue
+            except Exception:
+                continue
 
         full_text = "\n\n".join(p for p in parts if p)
         if not full_text.strip():

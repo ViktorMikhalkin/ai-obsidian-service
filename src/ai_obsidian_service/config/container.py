@@ -11,7 +11,7 @@ def build_search_service(index_dir: str | None = None) -> SearchService:
     """
     Build a production SearchService:
       - parsers: Markdown + PDF + EPUB (equal footing)
-      - chunker: SimpleChunker(max_chars=1000, overlap=100)
+      - chunker: SimpleChunker(max_chars=1500, overlap=150)
       - embedder/store/index: selected in di_selector.make_components()
         (backends decided via env, e.g. VECTOR_STORE_BACKEND)
     Note:
@@ -19,7 +19,7 @@ def build_search_service(index_dir: str | None = None) -> SearchService:
       - we attach the parsers set directly to the returned service.
     """
     parsers = all_parsers()
-    chunker = SimpleChunker(max_chars=1000, overlap=100)
+    chunker = SimpleChunker(max_chars=1500, overlap=150)
     di = make_components(chunker=chunker)
     service: SearchService = di.search  # returned by DI factory
 
@@ -47,6 +47,6 @@ def build_index_corpus(index_dir: str | None = None) -> IndexCorpus:
     to the SearchService built above.
     """
     parsers = all_parsers()
-    chunker = SimpleChunker(max_chars=1000, overlap=100)
+    chunker = SimpleChunker(max_chars=1500, overlap=150)
     service = build_search_service(index_dir=index_dir)
     return IndexCorpus(parsers=parsers, chunker=chunker, service=service)

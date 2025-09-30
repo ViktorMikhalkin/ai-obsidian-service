@@ -11,6 +11,7 @@ from ai_obsidian_service.domain.models import (
     EmbeddedChunk,
     EmbeddedQuery,
     Hit,
+    SearchResult,
 )
 
 
@@ -29,6 +30,11 @@ class InMemoryVectorStore:
     _vecs: list[np.ndarray] = field(default_factory=list, init=False, repr=False)
     _chunks: list[EmbeddedChunk] = field(default_factory=list, init=False, repr=False)
 
+    @property
+    def count(self) -> int:
+        """Return the number of chunks in the store."""
+        return len(self._chunks)
+
     def upsert(self, chunks: Sequence[EmbeddedChunk]) -> None:
         if not chunks:
             return
@@ -38,9 +44,10 @@ class InMemoryVectorStore:
         self._vecs.extend(list(block))
         self._chunks.extend(list(chunks))
 
-    def search(self, query: EmbeddedQuery, top_k: int) -> list[Hit]:
+    def search(self, query: EmbeddedQuery, top_k: int) -> SearchResult:
         if not self._vecs:
-            return []
+            return SearchResult(query=None, hits=[])
+
         q = np.asarray(query.vector, dtype=np.float32)
         sims: list[tuple[float, int]] = []
         for i, v in enumerate(self._vecs):
@@ -64,4 +71,4 @@ class InMemoryVectorStore:
                     metadata=(ch.metadata or {}),
                 )
             )
-        return hits
+        return SearchResult(query=None, hits=hits)

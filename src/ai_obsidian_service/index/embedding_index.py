@@ -41,10 +41,10 @@ class EmbeddingIndex:
         t0 = time.perf_counter()
         vec = self.embedder.embed([text])
         eq = EmbeddedQuery(text=text, vector=np.asarray(vec[0], dtype=np.float32))
-        hits = self.store.search(eq, top_k=int(top_k))
+        store_result = self.store.search(eq.vector, top_k=int(top_k))
         return SearchResult(
             query=Query(text=text, top_k=int(top_k)),
-            hits=hits,
+            hits=store_result.hits,
             total_time_ms=round((time.perf_counter() - t0) * 1000.0, 3),
             retrieved_at=datetime.utcnow(),
         )

@@ -66,8 +66,25 @@ def _make_memory(*, model_name: str, chunker: SimpleChunker) -> Components:
 
 
 def _make_faiss(*, model_name: str, index_dir: str | None, chunker: SimpleChunker) -> Components:
+    from pathlib import Path
+
     embedder = SentenceTransformersEmbedder(model_name=model_name)
-    store = FaissVectorStore(dim=None)
+
+    # Try to load existing index from disk
+    store = None
+    if index_dir and Path(index_dir).exists() and (Path(index_dir) / "meta.json").exists():
+        try:
+            log.info(f"Loading existing FAISS index from {index_dir}")
+            store = FaissVectorStore.load(index_dir, expected_model_name=model_name)
+            log.info(f"Loaded index with {store.count} chunks")
+        except Exception as e:
+            log.warning(f"Failed to load index from {index_dir}: {e}. Creating new empty store.")
+            store = None
+
+    if store is None:
+        log.info("Creating new empty FAISS store")
+        store = FaissVectorStore(dim=None)
+
     index = EmbeddingIndex(embedder=embedder, store=store, chunker=chunker)
 
     parsers = all_parsers()  # MD + PDF + EPUB
@@ -88,7 +105,7 @@ def make_components(*, chunker: SimpleChunker | None = None) -> Components:
     backend = (os.getenv("VECTOR_STORE_BACKEND") or "memory").lower()
     model_name = os.getenv("EMBEDDINGS_MODEL") or "sentence-transformers/all-MiniLM-L6-v2"
     index_dir = os.getenv("INDEX_DIR")
-    chunker = chunker or SimpleChunker(max_chars=1000, overlap=100)
+    chunker = chunker or SimpleChunker(max_chars=1500, overlap=150)
 
     if backend == "faiss":
         return _make_faiss(model_name=model_name, index_dir=index_dir, chunker=chunker)
