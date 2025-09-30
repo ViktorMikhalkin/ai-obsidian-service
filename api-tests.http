@@ -1,0 +1,51 @@
+### Variables
+@baseUrl = http://127.0.0.1:8000
+@testRoot = /data/obsidian-test-lib
+
+### Get server info
+GET {{baseUrl}}/info
+
+### Rebuild index
+POST {{baseUrl}}/index/rebuild
+Content-Type: application/json
+
+{
+  "root": "{{testRoot}}"
+}
+
+### Search for Java
+POST {{baseUrl}}/search
+Content-Type: application/json
+
+{
+  "query": "Java programming",
+  "top_k": 5
+}
+
+### Search with collection filter
+POST {{baseUrl}}/search
+Content-Type: application/json
+
+{
+  "query": "Java",
+  "top_k": 5,
+  "collection": "docs"
+}
+
+### Answer with RAG
+POST {{baseUrl}}/answer
+Content-Type: application/json
+
+{
+  "query": "What is Java programming?",
+  "top_k": 5
+}
+
+### Answer - explain OOP
+POST {{baseUrl}}/answer
+Content-Type: application/json
+
+{
+  "query": "Explain object-oriented programming concepts",
+  "top_k": 5
+}

@@ -9,7 +9,6 @@ from ai_obsidian_service.domain.models import (
     ChunkId,
     DocId,
     EmbeddedChunk,
-    EmbeddedQuery,
     Hit,
     SearchResult,
 )
@@ -44,11 +43,11 @@ class InMemoryVectorStore:
         self._vecs.extend(list(block))
         self._chunks.extend(list(chunks))
 
-    def search(self, query: EmbeddedQuery, top_k: int) -> SearchResult:
+    def search(self, query_vec: np.ndarray, top_k: int) -> SearchResult:
         if not self._vecs:
             return SearchResult(query=None, hits=[])
 
-        q = np.asarray(query.vector, dtype=np.float32)
+        q = np.asarray(query_vec, dtype=np.float32)
         sims: list[tuple[float, int]] = []
         for i, v in enumerate(self._vecs):
             sims.append((_dot(q, v), i))
