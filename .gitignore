@@ -10,5 +10,7 @@ build/
 .ruff_cache/
 .idea/
 .env
+.cpu.env
+.gpu.env
 .env.local
 tests/__pycache__/
