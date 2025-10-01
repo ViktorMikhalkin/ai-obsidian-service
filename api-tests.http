@@ -2,16 +2,228 @@
 @baseUrl = http://127.0.0.1:8000
 @testRoot = /data/obsidian-test-lib
 
+### ============================================================================
+### INFO ENDPOINT
+### ============================================================================
+
 ### Get server info
 GET {{baseUrl}}/info
 
-### Rebuild index
+> {%
+    client.test("Info request successful", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+        client.assert(response.body.backend !== undefined, "No backend in response");
+    });
+
+    client.log("Backend: " + response.body.backend);
+    client.log("Model: " + response.body.model);
+    client.log("Count: " + response.body.count);
+    client.log("Index Dir: " + response.body.index_dir);
+
+    // Store for later tests
+    client.global.set("embedding_model", response.body.model);
+    client.global.set("index_count_before", response.body.count);
+%}
+
+###
+
+### ============================================================================
+### INDEX REBUILD ENDPOINT - SSE STREAMING
+### ============================================================================
+
+### Rebuild index with SSE progress (streaming response)
+# IMPORTANT: IntelliJ HTTP Client has limited SSE support
+# - It will show the full response but may not parse events in real-time
+# - For better testing, use curl, Python, or the provided test scripts
+POST {{baseUrl}}/index/rebuild
+Content-Type: application/json
+Accept: text/event-stream
+
+{
+  "root": "{{testRoot}}"
+}
+
+> {%
+    client.test("SSE stream started successfully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+        client.assert(
+            response.headers.valueOf("Content-Type").includes("text/event-stream"),
+            "Content-Type is not text/event-stream"
+        );
+    });
+
+    client.log("=== Index Rebuild Started ===");
+    client.log("Check response body for SSE events");
+
+    // Parse and log SSE events
+    const lines = response.body.split('\n');
+    let eventCount = 0;
+
+    lines.forEach(line => {
+        if (line.startsWith('data: ')) {
+            eventCount++;
+            try {
+                const data = JSON.parse(line.substring(6));
+                client.log(`Event ${eventCount}: ${data.status}`);
+
+                if (data.status === 'complete') {
+                    client.log(`✓ Indexed ${data.indexed} chunks from ${data.total} files`);
+                    client.log(`✓ Total time: ${data.total_time_seconds}s`);
+                    client.log(`✓ Errors: ${data.errors || 0}`);
+                }
+            } catch (e) {
+                client.log("Failed to parse event: " + line);
+            }
+        }
+    });
+
+    client.log(`Total events received: ${eventCount}`);
+%}
+
+###
+
+### ============================================================================
+### INDEX REBUILD - ERROR CASES
+### ============================================================================
+
+### Test 503: Rebuild already in progress
+# NOTE: Run this IMMEDIATELY after starting the previous rebuild
+# If the rebuild finishes too quickly, this will return 200 instead
 POST {{baseUrl}}/index/rebuild
 Content-Type: application/json
 
 {
   "root": "{{testRoot}}"
 }
+
+> {%
+    client.test("Handles concurrent rebuild correctly", function() {
+        if (response.status === 503) {
+            client.log("✓ Correctly returned 503 - rebuild in progress");
+            client.assert(response.body.code === "INDEX_REBUILDING", "Wrong error code");
+            client.assert(response.body.message !== undefined, "No error message");
+        } else if (response.status === 200) {
+            client.log("⚠ Got 200 - previous rebuild already finished");
+        } else {
+            client.assert(false, "Unexpected status: " + response.status);
+        }
+    });
+%}
+
+###
+
+### Test 400: Invalid root (path not found)
+POST {{baseUrl}}/index/rebuild
+Content-Type: application/json
+
+{
+  "root": "/this/path/does/not/exist/anywhere"
+}
+
+> {%
+    client.test("Returns 400 for invalid root path", function() {
+        client.assert(response.status === 400, "Response status is not 400");
+        client.assert(response.body.code === "ROOT_NOT_FOUND", "Wrong error code");
+        client.assert(response.body.message.includes("not found"), "Wrong error message");
+    });
+
+    client.log("✓ Correctly rejected invalid path");
+%}
+
+###
+
+### Test 400: Root is a file, not directory
+# NOTE: Change this to an actual file path in your system for real testing
+POST {{baseUrl}}/index/rebuild
+Content-Type: application/json
+
+{
+  "root": "/etc/hosts"
+}
+
+> {%
+    client.test("Returns 400 for file instead of directory", function() {
+        if (response.status === 400) {
+            client.assert(
+                response.body.code === "ROOT_NOT_DIR" || response.body.code === "ROOT_NOT_FOUND",
+                "Wrong error code: " + response.body.code
+            );
+            client.log("✓ Correctly rejected file path");
+        } else {
+            client.log("⚠ Path may not exist on this system");
+        }
+    });
+%}
+
+###
+
+### Test 422: Missing root field
+POST {{baseUrl}}/index/rebuild
+Content-Type: application/json
+
+{
+  "root": ""
+}
+
+> {%
+    client.test("Returns 422 for empty root", function() {
+        client.assert(response.status === 422, "Response status is not 422");
+        client.assert(response.body.code === "MISSING_ROOT", "Wrong error code");
+    });
+
+    client.log("✓ Correctly rejected empty root");
+%}
+
+###
+
+### Test 422: No root field at all
+POST {{baseUrl}}/index/rebuild
+Content-Type: application/json
+
+{}
+
+> {%
+    client.test("Returns 422 for missing root field", function() {
+        client.assert(response.status === 422, "Response status is not 422");
+    });
+%}
+
+###
+
+### ============================================================================
+### VERIFY REBUILD RESULTS
+### ============================================================================
+
+### Get updated info after rebuild
+GET {{baseUrl}}/info
+
+> {%
+    client.test("Index count updated after rebuild", function() {
+        const countBefore = client.global.get("index_count_before");
+        const countAfter = response.body.count;
+
+        client.log("Count before rebuild: " + countBefore);
+        client.log("Count after rebuild: " + countAfter);
+
+        if (countBefore !== null && countBefore !== undefined) {
+            if (countAfter > countBefore) {
+                client.log("✓ Index count increased");
+            } else if (countAfter === countBefore) {
+                client.log("⚠ Index count unchanged (might be expected if no new files)");
+            } else {
+                client.log("⚠ Index count decreased (rebuild may have cleared old data)");
+            }
+        }
+    });
+
+    client.global.set("index_count_after", response.body.count);
+%}
+
+###
+
+### ============================================================================
+### SEARCH ENDPOINT
+### ============================================================================
 
 ### Search for Java
 POST {{baseUrl}}/search
@@ -21,6 +233,26 @@ Content-Type: application/json
   "query": "Java programming",
   "top_k": 5
 }
+
+> {%
+    client.test("Search request successful", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+        client.assert(response.body.hits !== undefined, "No hits in response");
+        client.assert(Array.isArray(response.body.hits), "Hits is not an array");
+        client.assert(response.body.query !== undefined, "No query in response");
+        client.assert(response.body.top_k !== undefined, "No top_k in response");
+    });
+
+    client.log("Query: " + response.body.query);
+    client.log("Found " + response.body.hits.length + " results");
+    client.log("Search time: " + response.body.total_time_ms + "ms");
+
+    if (response.body.hits.length > 0) {
+        client.log("Top result score: " + response.body.hits[0].score);
+    }
+%}
+
+###
 
 ### Search with collection filter
 POST {{baseUrl}}/search
@@ -32,6 +264,40 @@ Content-Type: application/json
   "collection": "docs"
 }
 
+> {%
+    client.test("Search with collection filter successful", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+        client.assert(response.body.hits !== undefined, "No hits in response");
+    });
+
+    client.log("Results with collection filter: " + response.body.hits.length);
+%}
+
+###
+
+### Search - empty query
+POST {{baseUrl}}/search
+Content-Type: application/json
+
+{
+  "query": "",
+  "top_k": 5
+}
+
+> {%
+    client.test("Empty query handled gracefully", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+    });
+
+    client.log("Empty query returned " + response.body.hits.length + " results");
+%}
+
+###
+
+### ============================================================================
+### ANSWER ENDPOINT (RAG)
+### ============================================================================
+
 ### Answer with RAG
 POST {{baseUrl}}/answer
 Content-Type: application/json
@@ -41,6 +307,33 @@ Content-Type: application/json
   "top_k": 5
 }
 
+> {%
+    client.test("Answer request successful", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+        client.assert(response.body.answer !== undefined, "No answer in response");
+        client.assert(response.body.citations !== undefined, "No citations in response");
+        client.assert(Array.isArray(response.body.citations), "Citations is not an array");
+        client.assert(response.body.query !== undefined, "No query in response");
+    });
+
+    const answer = response.body.answer;
+    const preview = answer.length > 100 ? answer.substring(0, 100) + "..." : answer;
+
+    client.log("Query: " + response.body.query);
+    client.log("Answer preview: " + preview);
+    client.log("Answer length: " + answer.length + " characters");
+    client.log("Citations: " + response.body.citations.length);
+
+    // Log citation details
+    response.body.citations.forEach((cite, i) => {
+        if (i < 3) { // Show first 3 citations
+            client.log(`  Citation ${i+1}: ${cite.doc_path || 'unknown'}`);
+        }
+    });
+%}
+
+###
+
 ### Answer - explain OOP
 POST {{baseUrl}}/answer
 Content-Type: application/json
@@ -49,3 +342,168 @@ Content-Type: application/json
   "query": "Explain object-oriented programming concepts",
   "top_k": 5
 }
+
+> {%
+    client.test("OOP explanation successful", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+        client.assert(response.body.answer.length > 0, "Empty answer received");
+    });
+
+    client.log("Answer length: " + response.body.answer.length);
+%}
+
+###
+
+### Answer - with higher top_k
+POST {{baseUrl}}/answer
+Content-Type: application/json
+
+{
+  "query": "What are design patterns?",
+  "top_k": 10
+}
+
+> {%
+    client.test("Answer with higher top_k successful", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+        client.assert(response.body.citations.length <= 10, "Too many citations");
+    });
+%}
+
+###
+
+### ============================================================================
+### PERFORMANCE TESTS
+### ============================================================================
+
+### Performance test - search latency
+POST {{baseUrl}}/search
+Content-Type: application/json
+
+{
+  "query": "Java programming",
+  "top_k": 10
+}
+
+> {%
+    client.test("Search performance acceptable", function() {
+        const timeMs = response.body.total_time_ms;
+        client.log("Search took " + timeMs + "ms");
+
+        if (timeMs < 100) {
+            client.log("✓ Excellent performance (< 100ms)");
+        } else if (timeMs < 500) {
+            client.log("✓ Good performance (< 500ms)");
+        } else if (timeMs < 1000) {
+            client.log("⚠ Acceptable performance (< 1s)");
+        } else {
+            client.log("⚠ Slow performance (> 1s) - consider optimization");
+        }
+
+        // Soft assertion - log warning but don't fail
+        if (timeMs > 1000) {
+            client.log("WARNING: Search took longer than 1 second");
+        }
+    });
+%}
+
+###
+
+### Edge case - very large top_k
+POST {{baseUrl}}/search
+Content-Type: application/json
+
+{
+  "query": "programming",
+  "top_k": 100
+}
+
+> {%
+    client.test("Large top_k handled correctly", function() {
+        client.assert(response.status === 200, "Response status is not 200");
+        client.assert(response.body.hits.length <= 100, "Too many results");
+        client.log("Returned " + response.body.hits.length + " results for top_k=100");
+    });
+%}
+
+###
+
+### ============================================================================
+### WORKFLOW TEST SCENARIO
+### ============================================================================
+
+### Scenario: Complete workflow
+# 1. Check initial state
+# 2. Rebuild index
+# 3. Verify rebuild
+# 4. Search
+# 5. Get answer
+
+### Step 1: Get initial state
+GET {{baseUrl}}/info
+
+> {%
+    client.global.set("workflow_model", response.body.model);
+    client.global.set("workflow_count_before", response.body.count);
+    client.log("=== WORKFLOW START ===");
+    client.log("Initial count: " + response.body.count);
+%}
+
+###
+
+### Step 2: Rebuild (commented out - uncomment to run)
+# POST {{baseUrl}}/index/rebuild
+# Content-Type: application/json
+# Accept: text/event-stream
+#
+# {
+#   "root": "{{testRoot}}"
+# }
+
+###
+
+### Step 3: Verify rebuild results
+GET {{baseUrl}}/info
+
+> {%
+    const countBefore = client.global.get("workflow_count_before");
+    const countAfter = response.body.count;
+    client.log("Count before: " + countBefore);
+    client.log("Count after: " + countAfter);
+    client.global.set("workflow_count_after", countAfter);
+%}
+
+###
+
+### Step 4: Search with updated index
+POST {{baseUrl}}/search
+Content-Type: application/json
+
+{
+  "query": "test query",
+  "top_k": 5
+}
+
+> {%
+    client.log("Search results: " + response.body.hits.length);
+    client.global.set("workflow_search_count", response.body.hits.length);
+%}
+
+###
+
+### Step 5: Get RAG answer
+POST {{baseUrl}}/answer
+Content-Type: application/json
+
+{
+  "query": "test query",
+  "top_k": 5
+}
+
+> {%
+    client.log("Answer length: " + response.body.answer.length);
+    client.log("Citations: " + response.body.citations.length);
+    client.log("=== WORKFLOW COMPLETE ===");
+%}
+
+###
