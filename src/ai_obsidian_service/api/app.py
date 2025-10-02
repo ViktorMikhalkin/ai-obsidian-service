@@ -4,16 +4,20 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import time
+import uuid
 import warnings
 from collections.abc import Callable
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, HTTPException, status
+from fastapi import Body, FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from ai_obsidian_service.adapters.llm.ollama_client import OllamaClient
 from ai_obsidian_service.api.mappers import hits_to_search_response
@@ -37,7 +41,67 @@ warnings.filterwarnings(
     module="multiprocessing.resource_tracker",
 )
 
+# -----------------------------------------------------------------------------
+# Logging Configuration
+# -----------------------------------------------------------------------------
+
+# Configure structured logging format
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s: %(name)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True,  # Override any existing configuration
+)
+
+# Set log level for our application
+logging.getLogger("ai_obsidian_service").setLevel(logging.INFO)
+
+# Reduce noise from other libraries
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
+
+# -----------------------------------------------------------------------------
+# Request ID tracking and structured logging
+# -----------------------------------------------------------------------------
+
+# Context variable for request tracking
+request_id_ctx: ContextVar[str] = ContextVar("request_id", default="")
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Adds request ID to all requests for log correlation"""
+
+    async def dispatch(self, request: Request, call_next):
+        # Use client-provided ID or generate new one
+        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4())[:8])
+        request_id_ctx.set(request_id)
+
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+
+def log_structured(level: str, message: str, **kwargs):
+    """
+    Structured logging helper that adds request_id automatically.
+
+    Usage:
+        log_structured("info", "search_completed", query="test", hits=5, latency_ms=42)
+    """
+    request_id = request_id_ctx.get("")
+
+    # Build structured log message
+    fields = {"request_id": request_id, **kwargs}
+    field_str = " ".join(f"{k}={v}" for k, v in fields.items() if v is not None)
+    log_msg = f"{message} | {field_str}" if field_str else message
+
+    # Log at appropriate level
+    log_func = getattr(logger, level.lower(), logger.info)
+    log_func(log_msg)
+
 
 # -----------------------------------------------------------------------------
 # App + DI
@@ -80,22 +144,25 @@ def _resolve_meta(chunk_id: str) -> dict[str, Any]:
 async def lifespan(app: FastAPI):
     """Manage application lifecycle with timeouts"""
     # Startup
-    logger.info("Starting AI Obsidian Service")
+    log_structured("info", "service_starting", version="5.0-lite")
+
     try:
         yield
     finally:
         # Shutdown: close resources gracefully with timeouts
-        logger.info("Shutting down AI Obsidian Service")
+        log_structured("info", "service_shutting_down")
 
         async def safe_shutdown(coro, name: str, timeout: float = 2.0):
             """Execute shutdown operation with timeout"""
             try:
                 await asyncio.wait_for(coro, timeout=timeout)
-                logger.info(f"{name} shutdown complete")
+                log_structured("info", "shutdown_completed", component=name)
             except TimeoutError:
-                logger.warning(f"{name} shutdown timed out after {timeout}s")
+                log_structured(
+                    "warning", "shutdown_timeout", component=name, timeout_s=timeout
+                )
             except Exception as e:
-                logger.error(f"Error during {name} shutdown: {e}")
+                log_structured("error", "shutdown_error", component=name, error=str(e))
 
         # Shutdown service
         if hasattr(_service, "shutdown"):
@@ -119,7 +186,7 @@ async def lifespan(app: FastAPI):
                 asyncio.to_thread(_service.index.store.close), "Store", timeout=2.0
             )
 
-        logger.info("Shutdown complete")
+        log_structured("info", "service_shutdown_complete")
 
 
 app = FastAPI(
@@ -128,6 +195,9 @@ app = FastAPI(
     description="Local indexing & RAG API for Obsidian notes with real-time SSE progress",
     lifespan=lifespan,
 )
+
+# Register request ID middleware
+app.add_middleware(RequestIdMiddleware)
 
 
 # -----------------------------------------------------------------------------
@@ -165,11 +235,17 @@ async def index_rebuild(root: str = Body(..., embed=True)):
 
     p = Path(root)
     if not p.exists():
+        log_structured(
+            "warning", "index_rebuild_invalid_path", root=root, reason="not_found"
+        )
         raise HTTPException(
             status_code=400,
             detail={"code": "ROOT_NOT_FOUND", "message": f"Path not found: {root}"},
         )
     if not p.is_dir():
+        log_structured(
+            "warning", "index_rebuild_invalid_path", root=root, reason="not_directory"
+        )
         raise HTTPException(
             status_code=400,
             detail={
@@ -180,6 +256,7 @@ async def index_rebuild(root: str = Body(..., embed=True)):
 
     # Check if rebuild is already running
     if _rebuild_lock.locked():
+        log_structured("warning", "index_rebuild_rejected", reason="already_running")
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
@@ -193,7 +270,7 @@ async def index_rebuild(root: str = Body(..., embed=True)):
         try:
             async with _rebuild_lock:
                 # Phase 1: Scan directory
-                logger.info(f"Starting index rebuild for: {root}")
+                log_structured("info", "index_rebuild_started", root=root)
                 yield f"data: {json.dumps({'status': 'scanning', 'message': 'Scanning directory...'})}\n\n"
 
                 # Get parsers to determine which files to index
@@ -211,9 +288,16 @@ async def index_rebuild(root: str = Body(..., embed=True)):
                             break
 
                 total = len(file_paths)
-                logger.info(f"Found {total} indexable files")
+                log_structured("info", "files_scanned", total=total)
 
                 if total == 0:
+                    log_structured(
+                        "info",
+                        "index_rebuild_completed",
+                        chunks=0,
+                        files=0,
+                        reason="no_files",
+                    )
                     yield f"data: {json.dumps({'status': 'complete', 'indexed': 0, 'total': 0, 'message': 'No indexable files found'})}\n\n"
                     return
 
@@ -265,7 +349,12 @@ async def index_rebuild(root: str = Body(..., embed=True)):
                     except Exception as e:
                         errors += 1
                         processed += 1
-                        logger.error(f"Failed to index {file_path}: {e}", exc_info=True)
+                        log_structured(
+                            "error",
+                            "file_index_failed",
+                            file=str(file_path),
+                            error=str(e),
+                        )
 
                         # Send error update every 10 errors
                         if errors % 10 == 0:
@@ -277,7 +366,7 @@ async def index_rebuild(root: str = Body(..., embed=True)):
                         last_update = time.time()
 
                 # Phase 3: Save index to disk
-                logger.info("Saving index to disk")
+                log_structured("info", "index_saving")
                 yield f"data: {json.dumps({'status': 'saving', 'message': 'Saving index to disk...'})}\n\n"
 
                 try:
@@ -294,19 +383,29 @@ async def index_rebuild(root: str = Body(..., embed=True)):
                             await asyncio.to_thread(
                                 store.save, index_dir, model_name=model_name
                             )
-                            logger.info(f"Index saved to {index_dir}")
+                            log_structured("info", "index_saved", path=index_dir)
                         else:
-                            logger.warning("INDEX_DIR not set, index not persisted")
+                            log_structured(
+                                "warning", "index_save_skipped", reason="no_index_dir"
+                            )
                     else:
-                        logger.warning("Store does not support save operation")
+                        log_structured(
+                            "warning", "index_save_skipped", reason="not_supported"
+                        )
                 except Exception as e:
+                    log_structured("error", "index_save_failed", error=str(e))
                     logger.error(f"Failed to save index: {e}", exc_info=True)
                     yield f"data: {json.dumps({'status': 'save_error', 'error': str(e)})}\n\n"
 
                 # Phase 4: Complete
                 total_time = time.time() - start_time
-                logger.info(
-                    f"Index rebuild complete: {count} chunks from {processed} files in {total_time:.2f}s ({errors} errors)"
+                log_structured(
+                    "info",
+                    "index_rebuild_completed",
+                    chunks=count,
+                    files=processed,
+                    errors=errors,
+                    duration_s=round(total_time, 2),
                 )
 
                 final_data = {
@@ -320,10 +419,11 @@ async def index_rebuild(root: str = Body(..., embed=True)):
                 yield f"data: {json.dumps(final_data)}\n\n"
 
         except asyncio.CancelledError:
-            logger.info("Index rebuild cancelled by client")
+            log_structured("info", "index_rebuild_cancelled")
             yield f"data: {json.dumps({'status': 'cancelled', 'message': 'Rebuild cancelled'})}\n\n"
             raise
         except Exception as e:
+            log_structured("error", "index_rebuild_failed", error=str(e))
             logger.exception("Index rebuild failed")
             yield f"data: {json.dumps({'status': 'failed', 'error': str(e)})}\n\n"
 
@@ -359,6 +459,15 @@ def api_search(req: SearchRequest):
         query = result.query or Query(text=req.query, top_k=req.top_k)
 
         dto = hits_to_search_response(query, result.hits, _resolve_meta)
+
+        log_structured(
+            "info",
+            "search_completed",
+            query=req.query[:50],  # Truncate long queries
+            hits=len(result.hits),
+            latency_ms=result.total_time_ms,
+        )
+
         return {
             "query": dto.query,
             "top_k": dto.top_k,
@@ -367,6 +476,7 @@ def api_search(req: SearchRequest):
             "total_time_ms": result.total_time_ms,
         }
     except Exception as e:
+        log_structured("error", "search_failed", query=req.query[:50], error=str(e))
         logger.error(f"Search failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=500, detail={"code": "SEARCH_FAILED", "message": str(e)}
@@ -438,12 +548,20 @@ def api_answer(req: AnswerRequest):
                 }
             )
 
+        log_structured(
+            "info",
+            "answer_completed",
+            query=req.query[:50],
+            citations=len(citations),
+        )
+
         return {
             "query": req.query,
             "answer": text.strip(),
             "citations": citations,
         }
     except Exception as e:
+        log_structured("error", "answer_failed", query=req.query[:50], error=str(e))
         logger.error(f"Answer generation failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=500, detail={"code": "ANSWER_FAILED", "message": str(e)}
@@ -484,7 +602,17 @@ def api_info() -> InfoSchema:
                 count = store.count
             if hasattr(store, "index_dir"):
                 index_dir = store.index_dir or index_dir
+
+        log_structured(
+            "info",
+            "info_retrieved",
+            backend=backend,
+            model=model,
+            dim=dim,
+            count=count,
+        )
     except Exception as e:
+        log_structured("error", "info_retrieval_failed", error=str(e))
         logger.error(f"Failed to retrieve service info: {e}")
 
     return InfoSchema(
