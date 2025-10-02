@@ -22,6 +22,7 @@ dependencies:
   - httpx>=0.25
   - tqdm>=4.65
   - requests>=2.31
+  - lxml>=4.9.0
 
   # Dev / test deps
   - pytest>=8

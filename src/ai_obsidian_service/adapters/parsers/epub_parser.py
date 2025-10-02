@@ -46,17 +46,17 @@ class EpubParser:
             # or check the media_type for HTML
             try:
                 # Method 1: Check media type for HTML content
-                media_type = getattr(item, 'media_type', '')
-                is_html = media_type in ('application/xhtml+xml', 'text/html')
+                media_type = getattr(item, "media_type", "")
+                is_html = media_type in ("application/xhtml+xml", "text/html")
 
                 # Method 2: Try get_type() if available
-                if not is_html and hasattr(item, 'get_type'):
+                if not is_html and hasattr(item, "get_type"):
                     # ITEM_DOCUMENT value is 9 in ebooklib
                     is_html = item.get_type() == 9
 
                 if is_html:
                     html = item.get_content().decode("utf-8", errors="ignore")
-                    soup = BeautifulSoup(html, "html.parser")
+                    soup = BeautifulSoup(html, "lxml")
                     txt = soup.get_text(separator=" ", strip=True)
                     if txt:
                         parts.append(txt)
