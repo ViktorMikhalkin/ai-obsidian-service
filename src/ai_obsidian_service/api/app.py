@@ -201,7 +201,7 @@ app.add_middleware(RequestIdMiddleware)
 
 
 # -----------------------------------------------------------------------------
-# /index/rebuild - SSE streaming endpoint
+# /index/rebuild - SSE streaming endpoint with batch processing
 # -----------------------------------------------------------------------------
 
 
@@ -303,62 +303,74 @@ async def index_rebuild(root: str = Body(..., embed=True)):
 
                 yield f"data: {json.dumps({'status': 'started', 'total': total, 'message': f'Found {total} files to index'})}\n\n"
 
-                # Phase 2: Index files with progress tracking
+                # Phase 2: Index files with progress tracking and batch processing
                 count = 0
                 processed = 0
                 errors = 0
                 last_update = time.time()
                 start_time = time.time()
+                batch_size = 4  # Process 4 files concurrently
 
-                for file_path in file_paths:
+                async def process_file(file_path: Path) -> tuple[Path, int | None]:
+                    """Process a single file and return (path, chunks_or_none)"""
                     try:
-                        # Use the global _service directly so indexed chunks are immediately available
                         chunks = await asyncio.to_thread(
                             _service.index_path, str(file_path)
                         )
-                        count += chunks
-                        processed += 1
-
-                        # Send progress update every 5 files, every 2 seconds, or on last file
-                        current_time = time.time()
-                        should_update = (
-                            processed % 5 == 0
-                            or current_time - last_update >= 2
-                            or processed == total
-                        )
-
-                        if should_update:
-                            elapsed = current_time - start_time
-                            rate = processed / elapsed if elapsed > 0 else 0
-                            eta_seconds = (total - processed) / rate if rate > 0 else 0
-
-                            progress_data = {
-                                "status": "indexing",
-                                "processed": processed,
-                                "total": total,
-                                "chunks": count,
-                                "errors": errors,
-                                "percent": int((processed / total) * 100),
-                                "rate": round(rate, 2),
-                                "eta_seconds": int(eta_seconds),
-                                "current_file": file_path.name,
-                            }
-                            yield f"data: {json.dumps(progress_data)}\n\n"
-                            last_update = current_time
-
+                        return (file_path, chunks)
                     except Exception as e:
-                        errors += 1
-                        processed += 1
                         log_structured(
                             "error",
                             "file_index_failed",
                             file=str(file_path),
                             error=str(e),
                         )
+                        return (file_path, None)
 
-                        # Send error update every 10 errors
-                        if errors % 10 == 0:
-                            yield f"data: {json.dumps({'status': 'error', 'file': str(file_path), 'error': str(e), 'total_errors': errors})}\n\n"
+                # Process files in batches
+                for i in range(0, len(file_paths), batch_size):
+                    batch = file_paths[i : i + batch_size]
+
+                    # Process batch concurrently
+                    results = await asyncio.gather(
+                        *[process_file(fp) for fp in batch], return_exceptions=False
+                    )
+
+                    # Collect results
+                    for _file_path, chunks in results:
+                        processed += 1
+                        if chunks is not None:
+                            count += chunks
+                        else:
+                            errors += 1
+
+                    # Send progress update every batch, every 2 seconds, or on last file
+                    current_time = time.time()
+                    should_update = (
+                        current_time - last_update >= 2 or processed == total
+                    )
+
+                    if should_update:
+                        elapsed = current_time - start_time
+                        rate = processed / elapsed if elapsed > 0 else 0
+                        eta_seconds = (total - processed) / rate if rate > 0 else 0
+
+                        # Get last file name from batch
+                        current_file = batch[-1].name if batch else ""
+
+                        progress_data = {
+                            "status": "indexing",
+                            "processed": processed,
+                            "total": total,
+                            "chunks": count,
+                            "errors": errors,
+                            "percent": int((processed / total) * 100),
+                            "rate": round(rate, 2),
+                            "eta_seconds": int(eta_seconds),
+                            "current_file": current_file,
+                        }
+                        yield f"data: {json.dumps(progress_data)}\n\n"
+                        last_update = current_time
 
                     # Keep-alive: send heartbeat every 15 seconds
                     if time.time() - last_update > 15:
