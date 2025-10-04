@@ -16,7 +16,7 @@ async def create_rebuild_stream(
     root: str, index_dir: str | None, force: bool = False
 ) -> AsyncGenerator[str, None]:
     """Generate SSE progress events for index rebuild."""
-    from ai_obsidian_service.api.logging import log_structured
+    from ai_obsidian_service.api.dependencies import log_structured
 
     try:
         log_structured("info", "index_rebuild_started", root=root, force=force)
@@ -25,22 +25,6 @@ async def create_rebuild_stream(
         p = Path(root)
         usecase = build_index_corpus(index_dir=index_dir)
         rebuild_service = usecase.service
-
-        # Load existing registry for incremental indexing
-        if index_dir and hasattr(rebuild_service.index, "load_registry"):
-            registry_path = Path(index_dir) / "doc_registry.json"
-            if registry_path.exists():
-                try:
-                    rebuild_service.index.load_registry(registry_path)
-                    # Access _doc_registry as Any since it's not in base EmbeddingIndex
-                    doc_registry = getattr(rebuild_service.index, "_doc_registry", {})
-                    log_structured(
-                        "info",
-                        "registry_preloaded",
-                        documents=len(doc_registry),
-                    )
-                except Exception as e:
-                    log_structured("warning", "registry_preload_failed", error=str(e))
 
         file_paths = []
         for path in p.rglob("*"):

@@ -28,6 +28,10 @@ TESTS := tests
 PYTEST_UNIT_EXPR := not integration_cpu and not integration_gpu and not e2e and not faiss
 PYTEST_OPTS := -v --tb=short --strict-markers
 
+# uvicorn timeouts
+UVICORN_TIMEOUT  := 7200
+UVICORN_GRACEFUL := 30
+
 # ----------------------------
 # Help
 # ----------------------------
@@ -188,12 +192,16 @@ test-all:
 .PHONY: serve-cpu
 serve-cpu:
 	@echo "Starting FastAPI development server (CPU)..."
-	$(CONDA) run -n $(CPU_ENV) --no-capture-output python -m uvicorn ai_obsidian_service.api.app:app --reload
+	$(CONDA) run -n $(CPU_ENV) --no-capture-output python -m uvicorn ai_obsidian_service.api.app:app --reload \
+	--timeout-keep-alive $(UVICORN_TIMEOUT) \
+	--timeout-graceful-shutdown $(UVICORN_GRACEFUL)
 
 .PHONY: serve-gpu
 serve-gpu:
 	@echo "Starting FastAPI development server (GPU)..."
-	$(CONDA) run -n $(GPU_ENV) --no-capture-output python -m uvicorn ai_obsidian_service.api.app:app --reload
+	$(CONDA) run -n $(GPU_ENV) --no-capture-output python -m uvicorn ai_obsidian_service.api.app:app --reload \
+	--timeout-keep-alive $(UVICORN_TIMEOUT) \
+	--timeout-graceful-shutdown $(UVICORN_GRACEFUL)
 
 # ----------------------------
 # Comprehensive Diagnostics

@@ -12,10 +12,8 @@ import subprocess
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    pass  # PyMuPDF - only for type checking
+import fitz  # PyMuPDF
 
 log = logging.getLogger(__name__)
 
@@ -28,8 +26,6 @@ def has_text_content(pdf_path: Path) -> bool:
         True if PDF has text, False if it's a scanned image
     """
     try:
-        import fitz  # Lazy import - only when actually checking PDFs
-
         doc = fitz.open(str(pdf_path))
 
         # Check first 3 pages (or all if fewer)

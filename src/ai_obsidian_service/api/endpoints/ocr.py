@@ -10,9 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, Body, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from ai_obsidian_service.api.dependencies import _ocr_lock
-from ai_obsidian_service.api.logging import log_structured, logger
-from ai_obsidian_service.utils.config_helpers import validate_for_operation
+from ai_obsidian_service.api.dependencies import _ocr_lock, log_structured, logger
 
 try:
     from ai_obsidian_service.utils.ocr_preprocessing import (
@@ -30,9 +28,6 @@ router = APIRouter()
 @router.post("/scan")
 async def ocr_scan_directory(root: str = Body(..., embed=True)):
     """Scan directory for PDFs that need OCR (dry run)."""
-
-    _config = validate_for_operation("ocr")
-
     if not OCR_AVAILABLE:
         raise HTTPException(
             status_code=501,
@@ -92,9 +87,6 @@ async def ocr_process_directory(
     language: str = Body("eng+rus+ukr"),
 ):
     """Process all scanned PDFs in directory with OCR (with SSE progress)."""
-
-    _config = validate_for_operation("ocr")
-
     if not OCR_AVAILABLE:
         raise HTTPException(
             status_code=501,

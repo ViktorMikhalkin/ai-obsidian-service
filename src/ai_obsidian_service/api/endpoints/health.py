@@ -1,12 +1,11 @@
 """Health and info endpoints."""
 
+import os
 from datetime import datetime
 
 from fastapi import APIRouter
 
-from ai_obsidian_service.api.dependencies import get_service
-from ai_obsidian_service.api.endpoints.config import get_current_config
-from ai_obsidian_service.api.logging import log_structured
+from ai_obsidian_service.api.dependencies import _service, log_structured
 from ai_obsidian_service.api.schemas import InfoSchema
 
 router = APIRouter()
@@ -26,22 +25,20 @@ def health_check():
 @router.get("/info", response_model=InfoSchema)
 def api_info() -> InfoSchema:
     """Get service information and current index statistics."""
-    config = get_current_config()
-
-    backend = config.indexing.backend or "memory"
+    backend = os.getenv("VECTOR_STORE_BACKEND", "memory")
     model = None
     dim = None
     count = None
-    index_dir = config.indexing.index_dir
+    index_dir = os.getenv("INDEX_DIR")
 
     try:
-        if hasattr(get_service().index, "embedder") and hasattr(
-            get_service().index.embedder, "model_name"
+        if hasattr(_service.index, "embedder") and hasattr(
+            _service.index.embedder, "model_name"
         ):
-            model = get_service().index.embedder.model_name
+            model = _service.index.embedder.model_name
 
-        if hasattr(get_service().index, "store"):
-            store = get_service().index.store
+        if hasattr(_service.index, "store"):
+            store = _service.index.store
             if hasattr(store, "dim"):
                 dim = store.dim
             if hasattr(store, "count"):

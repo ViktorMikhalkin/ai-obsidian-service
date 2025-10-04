@@ -1,21 +1,15 @@
 """Index rebuild and duplicate detection endpoints."""
 
 import json
+import os
 from collections import defaultdict
 from pathlib import Path
-from typing import cast
 
 from fastapi import APIRouter, Body, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from ai_obsidian_service.api.dependencies import _rebuild_lock
-from ai_obsidian_service.api.endpoints.config import (
-    get_current_config,
-    require_config_field,
-)
-from ai_obsidian_service.api.logging import log_structured
+from ai_obsidian_service.api.dependencies import _rebuild_lock, log_structured
 from ai_obsidian_service.api.streaming import create_rebuild_stream
-from ai_obsidian_service.utils.config_helpers import validate_for_operation
 
 router = APIRouter()
 
@@ -35,16 +29,7 @@ async def index_rebuild(root: str = Body(..., embed=True), force: bool = Body(Fa
     - Checkpoint saving (every 50 files)
     - Progress streaming
     - OCR detection tracking
-
-    Requires configuration:
-    - vault.vault_path must be set
-    - indexing.backend must be set
-    - embeddings.model must be set
-    - indexing.index_dir must be set
     """
-
-    # Validate required config FIRST
-    config = validate_for_operation("indexing")
 
     if not root:
         raise HTTPException(
@@ -86,9 +71,8 @@ async def index_rebuild(root: str = Body(..., embed=True), force: bool = Body(Fa
             },
         )
 
-    # Use config.indexing.index_dir instead of os.getenv("INDEX_DIR")
     return StreamingResponse(
-        create_rebuild_stream(root, config.indexing.index_dir, force),
+        create_rebuild_stream(root, os.getenv("INDEX_DIR"), force),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -111,18 +95,18 @@ def find_duplicate_files(vault_root: str | None = None):
 
     Returns:
         Groups of files with identical content, potential space savings
-
-    Requires configuration:
-    - indexing.index_dir must be set
     """
-    # Validate required config
-    config = get_current_config()
-    require_config_field(
-        "indexing.index_dir", config.indexing.index_dir, "duplicate detection"
-    )
+    # Load registry from disk to get latest state
+    index_dir = os.getenv("INDEX_DIR")
+    if not index_dir:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "INDEX_DIR_NOT_SET",
+                "message": "INDEX_DIR environment variable not set",
+            },
+        )
 
-    # Use config.indexing.index_dir
-    index_dir = cast(str, config.indexing.index_dir)
     registry_path = Path(index_dir) / "doc_registry.json"
 
     if not registry_path.exists():
@@ -164,15 +148,9 @@ def find_duplicate_files(vault_root: str | None = None):
             "message": "Registry is empty. Run index rebuild first.",
         }
 
-    # Resolve vault root - use config if not provided
+    # Resolve vault root
     if vault_root is None:
-        vault_root = config.vault.vault_path
-        if not vault_root:
-            # Fallback to current directory if vault_path not set
-            import os
-
-            vault_root = os.getcwd()
-
+        vault_root = os.getenv("VAULT_ROOT", os.getcwd())
     vault_path = Path(vault_root)
 
     # Group files by (hash, size) tuple for stronger duplicate detection
@@ -181,16 +159,26 @@ def find_duplicate_files(vault_root: str | None = None):
     for doc_id, doc_hash in registry.items():
         try:
             file_path = vault_path / doc_id
-            if file_path.exists() and file_path.is_file():
+            if file_path.exists():
                 file_size = file_path.stat().st_size
                 hash_size_to_docs[(doc_hash, file_size)].append(
                     {"path": doc_id, "size": file_size, "absolute_path": str(file_path)}
                 )
-            # Skip files that don't exist - don't include them in results
+            else:
+                hash_size_to_docs[(doc_hash, -1)].append(
+                    {
+                        "path": doc_id,
+                        "size": None,
+                        "absolute_path": None,
+                        "note": "File not found at expected location",
+                    }
+                )
         except Exception as e:
-            # Skip files with errors - don't pollute results with phantom files
             log_structured(
                 "warning", "duplicate_check_file_error", doc_id=doc_id, error=str(e)
+            )
+            hash_size_to_docs[(doc_hash, -1)].append(
+                {"path": doc_id, "size": None, "absolute_path": None, "error": str(e)}
             )
 
     # Filter to only duplicates

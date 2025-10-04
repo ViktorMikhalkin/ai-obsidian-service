@@ -4,20 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 import uuid
 from contextlib import asynccontextmanager
-from pathlib import Path
+from contextvars import ContextVar
 from typing import Any
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from ai_obsidian_service.adapters.llm.ollama_client import OllamaClient
-from ai_obsidian_service.api.endpoints.config import get_current_config
-from ai_obsidian_service.api.logging import log_structured, request_id_ctx
 from ai_obsidian_service.config.container import build_search_service
-from ai_obsidian_service.index.faiss_store import FaissVectorStore
 
 # Logging setup with file output
 logging.basicConfig(
@@ -35,6 +33,11 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
+logger = logging.getLogger(__name__)
+
+# Request tracking
+request_id_ctx: ContextVar[str] = ContextVar("request_id", default="")
+
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
     """Adds request ID to all requests for log correlation."""
@@ -47,40 +50,29 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# Service initialization - lazy loaded to avoid import-time crashes in tests
-_service = None
+def log_structured(level: str, message: str, **kwargs):
+    """Structured logging helper that adds request_id automatically."""
+    request_id = request_id_ctx.get("")
+    fields = {"request_id": request_id, **kwargs}
+    field_str = " ".join(f"{k}={v}" for k, v in fields.items() if v is not None)
+    log_msg = f"{message} | {field_str}" if field_str else message
+    log_func = getattr(logger, level.lower(), logger.info)
+    log_func(log_msg)
 
 
-def _init_service():
-    """Initialize service using configuration."""
-    global _service
-    if _service is not None:
-        return _service
-
-    config = get_current_config()
-    index_dir = config.indexing.index_dir if config.indexing.index_dir else None
-    _service = build_search_service(index_dir=index_dir)
-    return _service
-
-
-def get_service():
-    """Get the service instance, initializing if needed."""
-    return _init_service()
+# Service initialization
+_service = build_search_service(index_dir=os.getenv("INDEX_DIR"))
 
 
 def _make_ollama() -> OllamaClient | None:
-    """Initialize Ollama client from configuration."""
-    config = get_current_config()
-
-    if not config.ollama_base_url or not config.ollama_model:
+    """Initialize Ollama client if configured."""
+    base = os.getenv("OLLAMA_BASE_URL")
+    model = os.getenv("OLLAMA_MODEL")
+    if not base or not model:
         return None
-
+    timeout_s = float(os.getenv("OLLAMA_TIMEOUT", "30"))
     try:
-        return OllamaClient(
-            base_url=config.ollama_base_url,
-            model=config.ollama_model,
-            timeout_s=config.ollama_timeout,
-        )
+        return OllamaClient(base_url=base, model=model, timeout_s=timeout_s)
     except Exception:
         return None
 
@@ -95,10 +87,7 @@ _ocr_lock = asyncio.Lock()
 def resolve_meta(chunk_id: str) -> dict[str, Any]:
     """Resolve chunk metadata."""
     try:
-        result = get_service().resolve_meta(chunk_id=chunk_id)  # Changed
-        if isinstance(result, dict):
-            return result
-        return {}
+        return _service.resolve_meta(chunk_id=chunk_id)
     except Exception:
         return {}
 
@@ -108,69 +97,10 @@ async def lifespan(app):
     """Manage application lifecycle with graceful shutdown."""
     log_structured("info", "service_starting", version="5.0-lite")
 
-    # Start background task to load index if needed
-    load_task = None
-    if (
-        hasattr(get_service().index, "_pending_load_path")
-        and get_service().index._pending_load_path
-    ):
-        index_dir = get_service().index._pending_load_path
-        model_name = getattr(get_service().index, "_pending_load_model", None)
-
-        async def load_index_background():
-            """Load FAISS index in background without blocking startup."""
-            try:
-                log_structured("info", "index_load_started", path=index_dir)
-
-                # Load in thread pool to avoid blocking
-                loaded_store = await asyncio.to_thread(
-                    FaissVectorStore.load, index_dir, expected_model_name=model_name
-                )
-
-                # Replace the empty store with loaded one
-                get_service().index.store = loaded_store
-
-                # Load registry if using EnhancedEmbeddingIndex
-                if hasattr(get_service().index, "load_registry"):
-                    registry_path = Path(index_dir) / "doc_registry.json"
-                    if registry_path.exists():
-                        await asyncio.to_thread(
-                            get_service().index.load_registry, registry_path
-                        )
-                        log_structured(
-                            "info",
-                            "registry_loaded",
-                            documents=len(get_service().index._doc_registry),
-                        )
-
-                log_structured(
-                    "info",
-                    "index_load_complete",
-                    chunks=loaded_store.count,
-                    path=index_dir,
-                )
-
-            except Exception as e:
-                log_structured(
-                    "error", "index_load_failed", error=str(e), path=index_dir
-                )
-
-        # Start background loading
-        load_task = asyncio.create_task(load_index_background())
-        log_structured("info", "index_loading_background", path=index_dir)
-
     try:
         yield
     finally:
         log_structured("info", "service_shutting_down")
-
-        # Cancel background task if still running
-        if load_task and not load_task.done():
-            load_task.cancel()
-            try:
-                await load_task
-            except asyncio.CancelledError:
-                pass
 
         async def safe_shutdown(coro, name: str, timeout: float = 2.0):
             try:
@@ -183,23 +113,23 @@ async def lifespan(app):
             except Exception as e:
                 log_structured("error", "shutdown_error", component=name, error=str(e))
 
-        if hasattr(get_service(), "shutdown"):
+        if hasattr(_service, "shutdown"):
             await safe_shutdown(
-                asyncio.to_thread(get_service().shutdown), "Service", timeout=2.0
+                asyncio.to_thread(_service.shutdown), "Service", timeout=2.0
             )
 
-        if hasattr(get_service(), "index") and hasattr(get_service().index, "close"):
+        if hasattr(_service, "index") and hasattr(_service.index, "close"):
             await safe_shutdown(
-                asyncio.to_thread(get_service().index.close), "Index", timeout=2.0
+                asyncio.to_thread(_service.index.close), "Index", timeout=2.0
             )
 
         if (
-            hasattr(get_service(), "index")
-            and hasattr(get_service().index, "store")
-            and hasattr(get_service().index.store, "close")
+            hasattr(_service, "index")
+            and hasattr(_service.index, "store")
+            and hasattr(_service.index.store, "close")
         ):
             await safe_shutdown(
-                asyncio.to_thread(get_service().index.store.close), "Store", timeout=2.0
+                asyncio.to_thread(_service.index.store.close), "Store", timeout=2.0
             )
 
         log_structured("info", "service_shutdown_complete")
