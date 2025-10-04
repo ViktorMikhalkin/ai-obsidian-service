@@ -11,7 +11,7 @@ dependencies:
   - pytorch=2.5.1
   - pytorch-cuda=12.4
   - cudnn
-  - faiss-gpu=1.9.0
+  - faiss-gpu=1.12.0
 
   # Scientific computing
   - numpy>=1.24,<1.27  # Match CPU constraint
@@ -61,3 +61,6 @@ dependencies:
       - types-requests
       - types-tqdm
       - types-aiofiles
+      - pymupdf>=1.24.0
+      - tiktoken>=0.5.0
+      - ocrmypdf>=16.11.0
