@@ -23,6 +23,7 @@ dependencies:
   - tqdm>=4.65
   - requests>=2.31
   - lxml>=4.9.0
+  - unpaper>=6.1
 
   # Dev / test deps
   - pytest>=8
@@ -49,3 +50,4 @@ dependencies:
       - types-aiofiles
       - pymupdf>=1.24.0
       - tiktoken>=0.5.0
+      - ocrmypdf>=16.11.0
