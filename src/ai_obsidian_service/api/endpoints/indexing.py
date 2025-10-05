@@ -159,26 +159,16 @@ def find_duplicate_files(vault_root: str | None = None):
     for doc_id, doc_hash in registry.items():
         try:
             file_path = vault_path / doc_id
-            if file_path.exists():
+            if file_path.exists() and file_path.is_file():
                 file_size = file_path.stat().st_size
                 hash_size_to_docs[(doc_hash, file_size)].append(
                     {"path": doc_id, "size": file_size, "absolute_path": str(file_path)}
                 )
-            else:
-                hash_size_to_docs[(doc_hash, -1)].append(
-                    {
-                        "path": doc_id,
-                        "size": None,
-                        "absolute_path": None,
-                        "note": "File not found at expected location",
-                    }
-                )
+            # Skip files that don't exist - don't include them in results
         except Exception as e:
+            # Skip files with errors - don't pollute results with phantom files
             log_structured(
                 "warning", "duplicate_check_file_error", doc_id=doc_id, error=str(e)
-            )
-            hash_size_to_docs[(doc_hash, -1)].append(
-                {"path": doc_id, "size": None, "absolute_path": None, "error": str(e)}
             )
 
     # Filter to only duplicates

@@ -191,17 +191,27 @@ test-all:
 
 .PHONY: serve-cpu
 serve-cpu:
+	@if [ "$$CONDA_DEFAULT_ENV" != "$(CPU_ENV)" ]; then \
+		echo "Error: Please activate the CPU environment first:"; \
+		echo "  conda activate $(CPU_ENV)"; \
+		exit 1; \
+	fi
 	@echo "Starting FastAPI development server (CPU)..."
-	$(CONDA) run -n $(CPU_ENV) --no-capture-output python -m uvicorn ai_obsidian_service.api.app:app --reload \
-	--timeout-keep-alive $(UVICORN_TIMEOUT) \
-	--timeout-graceful-shutdown $(UVICORN_GRACEFUL)
+	uvicorn ai_obsidian_service.api.app:app --reload \
+		--timeout-keep-alive $(UVICORN_TIMEOUT) \
+		--timeout-graceful-shutdown $(UVICORN_GRACEFUL)
 
 .PHONY: serve-gpu
 serve-gpu:
+	@if [ "$$CONDA_DEFAULT_ENV" != "$(GPU_ENV)" ]; then \
+		echo "Error: Please activate the GPU environment first:"; \
+		echo "  conda activate $(GPU_ENV)"; \
+		exit 1; \
+	fi
 	@echo "Starting FastAPI development server (GPU)..."
-	$(CONDA) run -n $(GPU_ENV) --no-capture-output python -m uvicorn ai_obsidian_service.api.app:app --reload \
-	--timeout-keep-alive $(UVICORN_TIMEOUT) \
-	--timeout-graceful-shutdown $(UVICORN_GRACEFUL)
+	uvicorn ai_obsidian_service.api.app:app --reload \
+		--timeout-keep-alive $(UVICORN_TIMEOUT) \
+		--timeout-graceful-shutdown $(UVICORN_GRACEFUL)
 
 # ----------------------------
 # Comprehensive Diagnostics

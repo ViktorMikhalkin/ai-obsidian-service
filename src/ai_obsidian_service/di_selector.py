@@ -102,26 +102,22 @@ def _make_faiss(
 
     embedder = SentenceTransformersEmbedder(model_name=model_name)
 
-    # Try to load existing index from disk
-    store = None
-    if (
+    # Always create empty store for fast startup
+    # Loading happens asynchronously in the lifespan
+    store = FaissVectorStore(dim=None)
+    log.info("FAISS store initialized (empty)")
+
+    # Check if we should load from disk later
+    should_load = (
         index_dir
         and Path(index_dir).exists()
         and (Path(index_dir) / "meta.json").exists()
-    ):
-        try:
-            log.info(f"Loading existing FAISS index from {index_dir}")
-            store = FaissVectorStore.load(index_dir, expected_model_name=model_name)
-            log.info(f"Loaded index with {store.count} chunks")
-        except Exception as e:
-            log.warning(
-                f"Failed to load index from {index_dir}: {e}. Creating new empty store."
-            )
-            store = None
+    )
 
-    if store is None:
-        log.info("Creating new empty FAISS store")
-        store = FaissVectorStore(dim=None)
+    if should_load:
+        log.info(f"Will load existing index from {index_dir} in background")
+    else:
+        log.info("No existing index found - starting fresh")
 
     # Check if incremental indexing is enabled
     use_incremental = os.getenv("ENABLE_INCREMENTAL_INDEXING", "1") == "1"
@@ -144,17 +140,9 @@ def _make_faiss(
                 enable_dedup=enable_dedup,
             )
 
-            # Load document registry if exists
-            if index_dir:
-                registry_path = Path(index_dir) / "doc_registry.json"
-                if registry_path.exists():
-                    try:
-                        index.load_registry(registry_path)
-                        log.info(
-                            f"Loaded registry: {len(index._doc_registry)} documents"
-                        )
-                    except Exception as e:
-                        log.warning(f"Failed to load registry: {e}")
+            # Store index_dir for later background loading
+            index._pending_load_path = index_dir if should_load else None
+            index._pending_load_model = model_name if should_load else None
 
             log.info("Using EnhancedEmbeddingIndex with incremental indexing")
 
@@ -163,9 +151,13 @@ def _make_faiss(
                 "EnhancedEmbeddingIndex not available, falling back to basic EmbeddingIndex"
             )
             index = EmbeddingIndex(embedder=embedder, store=store, chunker=chunker)
+            index._pending_load_path = index_dir if should_load else None
+            index._pending_load_model = model_name if should_load else None
     else:
         # Use basic EmbeddingIndex
         index = EmbeddingIndex(embedder=embedder, store=store, chunker=chunker)
+        index._pending_load_path = index_dir if should_load else None
+        index._pending_load_model = model_name if should_load else None
         log.info("Using basic EmbeddingIndex (incremental disabled)")
 
     parsers = all_parsers()

@@ -36,6 +36,7 @@ dependencies:
   - tqdm>=4.65
   - requests>=2.31
   - lxml>=4.9.0
+  - unpaper>=6.1
 
   # Development and testing
   - pytest>=8

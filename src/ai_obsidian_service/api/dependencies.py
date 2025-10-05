@@ -9,6 +9,7 @@ import sys
 import uuid
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
+from pathlib import Path
 from typing import Any
 
 from fastapi import Request
@@ -16,6 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from ai_obsidian_service.adapters.llm.ollama_client import OllamaClient
 from ai_obsidian_service.config.container import build_search_service
+from ai_obsidian_service.index.faiss_store import FaissVectorStore
 
 # Logging setup with file output
 logging.basicConfig(
@@ -97,10 +99,69 @@ async def lifespan(app):
     """Manage application lifecycle with graceful shutdown."""
     log_structured("info", "service_starting", version="5.0-lite")
 
+    # Start background task to load index if needed
+    load_task = None
+    if (
+        hasattr(_service.index, "_pending_load_path")
+        and _service.index._pending_load_path
+    ):
+        index_dir = _service.index._pending_load_path
+        model_name = getattr(_service.index, "_pending_load_model", None)
+
+        async def load_index_background():
+            """Load FAISS index in background without blocking startup."""
+            try:
+                log_structured("info", "index_load_started", path=index_dir)
+
+                # Load in thread pool to avoid blocking
+                loaded_store = await asyncio.to_thread(
+                    FaissVectorStore.load, index_dir, expected_model_name=model_name
+                )
+
+                # Replace the empty store with loaded one
+                _service.index.store = loaded_store
+
+                # Load registry if using EnhancedEmbeddingIndex
+                if hasattr(_service.index, "load_registry"):
+                    registry_path = Path(index_dir) / "doc_registry.json"
+                    if registry_path.exists():
+                        await asyncio.to_thread(
+                            _service.index.load_registry, registry_path
+                        )
+                        log_structured(
+                            "info",
+                            "registry_loaded",
+                            documents=len(_service.index._doc_registry),
+                        )
+
+                log_structured(
+                    "info",
+                    "index_load_complete",
+                    chunks=loaded_store.count,
+                    path=index_dir,
+                )
+
+            except Exception as e:
+                log_structured(
+                    "error", "index_load_failed", error=str(e), path=index_dir
+                )
+
+        # Start background loading
+        load_task = asyncio.create_task(load_index_background())
+        log_structured("info", "index_loading_background", path=index_dir)
+
     try:
         yield
     finally:
         log_structured("info", "service_shutting_down")
+
+        # Cancel background task if still running
+        if load_task and not load_task.done():
+            load_task.cancel()
+            try:
+                await load_task
+            except asyncio.CancelledError:
+                pass
 
         async def safe_shutdown(coro, name: str, timeout: float = 2.0):
             try:

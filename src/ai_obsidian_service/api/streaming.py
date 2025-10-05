@@ -26,6 +26,20 @@ async def create_rebuild_stream(
         usecase = build_index_corpus(index_dir=index_dir)
         rebuild_service = usecase.service
 
+        # Load existing registry for incremental indexing
+        if index_dir and hasattr(rebuild_service.index, "load_registry"):
+            registry_path = Path(index_dir) / "doc_registry.json"
+            if registry_path.exists():
+                try:
+                    rebuild_service.index.load_registry(registry_path)
+                    log_structured(
+                        "info",
+                        "registry_preloaded",
+                        documents=len(rebuild_service.index._doc_registry),
+                    )
+                except Exception as e:
+                    log_structured("warning", "registry_preload_failed", error=str(e))
+
         file_paths = []
         for path in p.rglob("*"):
             if not path.is_file():
