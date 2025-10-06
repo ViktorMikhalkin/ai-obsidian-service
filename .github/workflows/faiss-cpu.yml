@@ -1,38 +1,37 @@
-name: CI (faiss-cpu, py312)
+name: CI (integration-cpu, py312)
 
 on:
   workflow_dispatch:
-  pull_request:
+  push:
+    branches: [ main ]
     paths:
       - "src/**"
       - "tests/**"
-      - "pyproject.toml"
       - ".github/workflows/faiss-cpu.yml"
+      - "pyproject.toml"
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  faiss_cpu:
+  integration_cpu:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
           cache: "pip"
-      - name: Install deps (faiss-cpu + ST)
+
+      - name: Install deps
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
-          python -m pip install faiss-cpu sentence-transformers
-      - name: Tests (integration_cpu/faiss markers)
-        env:
-          VECTOR_STORE_BACKEND: faiss
+          python -m pip install "pydantic>=2" faiss-cpu "sentence-transformers>=2.2" rank-bm25 pymupdf pypdf ebooklib python-frontmatter
+
+      - name: Type check (mypy)
+        run: python -m mypy src tests
+
+      - name: Tests (integration_cpu + faiss)
         run: python -m pytest -v --tb=short --strict-markers -m "integration_cpu or faiss"
