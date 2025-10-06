@@ -39,7 +39,9 @@ ET
         b"endobj\n"
     )
     # 4: Font
-    parts.append(b"4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n")
+    parts.append(
+        b"4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n"
+    )
     # 5: Contents
     parts.append(
         f"5 0 obj\n<< /Length {len_content} >>\nstream\n".encode("latin-1")
@@ -66,7 +68,7 @@ ET
         f"5 0 obj\n<< /Length {len_content} >>\nstream\n".encode("latin-1")
         + content
         + b"endstream\nendobj\n",
-        ]
+    ]
     # recompute offsets precisely
     offsets = []
     cursor = 0
@@ -75,7 +77,7 @@ ET
         cursor += len(chunk)
 
     xref = io.BytesIO()
-    xref.write(f"xref\n0 {len(objs)+1}\n".encode("latin-1"))
+    xref.write(f"xref\n0 {len(objs) + 1}\n".encode("latin-1"))
     # obj 0 (free)
     xref.write(b"0000000000 65535 f \n")
     # objs 1..5
@@ -83,9 +85,9 @@ ET
         xref.write(f"{off:010d} 00000 n \n".encode("latin-1"))
 
     trailer = (
-            b"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n"
-            + f"{cursor}".encode("latin-1")
-            + b"\n%%EOF\n"
+        b"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n"
+        + f"{cursor}".encode("latin-1")
+        + b"\n%%EOF\n"
     )
     return b"".join(objs) + xref.getvalue() + trailer
 
@@ -145,7 +147,7 @@ def corpus_with_md_pdf_epub(tmp_path: Path) -> Path:
 
 
 def test_mix_parsers_index_and_search(
-        search_service: SearchService, corpus_with_md_pdf_epub: Path
+    search_service: SearchService, corpus_with_md_pdf_epub: Path
 ):
     # Index all supported files seen under vault
     for p in sorted(corpus_with_md_pdf_epub.rglob("*")):

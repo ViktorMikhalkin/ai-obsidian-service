@@ -18,6 +18,7 @@ class Components:
       - search is the SearchService bound to the chosen backend
       - parsers is the full, equal-footing set (MD + PDF + EPUB)
     """
+
     embedder: Any
     store: Any
     index: Any
@@ -34,7 +35,9 @@ def make_components(*, chunker: SimpleChunker | None = None) -> Components:
     and only augments the service with a multi-parser setup.
     """
     # 1) Build the base set (embedder, store, index, search) via the existing selector
-    base = _base_make_components(chunker=chunker or SimpleChunker(max_chars=1000, overlap=100))
+    base = _base_make_components(
+        chunker=chunker or SimpleChunker(max_chars=1000, overlap=100)
+    )
 
     # 2) Equal-footing parser set
     parsers = all_parsers()  # [MarkdownParser(), PdfParser(), EpubParser()]

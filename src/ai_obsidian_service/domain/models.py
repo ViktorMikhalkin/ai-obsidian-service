@@ -68,7 +68,11 @@ class Hit:
     def __post_init__(self) -> None:
         # если metadata не задана — аккуратно достать из chunk, если она там есть
         if self.metadata is None:
-            chunk_meta = getattr(self.chunk, "metadata", None) if self.chunk is not None else None
+            chunk_meta = (
+                getattr(self.chunk, "metadata", None)
+                if self.chunk is not None
+                else None
+            )
             self.metadata = chunk_meta or {}
 
 

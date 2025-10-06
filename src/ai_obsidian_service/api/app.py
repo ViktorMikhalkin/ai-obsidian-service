@@ -5,7 +5,7 @@ import warnings
 from fastapi import FastAPI
 
 from ai_obsidian_service.api.dependencies import RequestIdMiddleware, lifespan
-from ai_obsidian_service.api.endpoints import health, indexing, ocr, search
+from ai_obsidian_service.api.endpoints import config, health, indexing, ocr, search
 
 warnings.filterwarnings(
     "ignore",
@@ -25,6 +25,7 @@ app.add_middleware(RequestIdMiddleware)
 
 # Register routers
 app.include_router(health.router, tags=["health"])
+app.include_router(config.router, tags=["config"])
 app.include_router(search.router, tags=["search"])
 app.include_router(indexing.router, prefix="/index", tags=["indexing"])
 app.include_router(ocr.router, prefix="/ocr", tags=["ocr"])

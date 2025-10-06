@@ -1,15 +1,20 @@
 """Index rebuild and duplicate detection endpoints."""
 
 import json
-import os
 from collections import defaultdict
 from pathlib import Path
+from typing import cast
 
 from fastapi import APIRouter, Body, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ai_obsidian_service.api.dependencies import _rebuild_lock, log_structured
+from ai_obsidian_service.api.endpoints.config import (
+    get_current_config,
+    require_config_field,
+)
 from ai_obsidian_service.api.streaming import create_rebuild_stream
+from ai_obsidian_service.utils.config_helpers import validate_for_operation
 
 router = APIRouter()
 
@@ -29,7 +34,16 @@ async def index_rebuild(root: str = Body(..., embed=True), force: bool = Body(Fa
     - Checkpoint saving (every 50 files)
     - Progress streaming
     - OCR detection tracking
+
+    Requires configuration:
+    - vault.vault_path must be set
+    - indexing.backend must be set
+    - embeddings.model must be set
+    - indexing.index_dir must be set
     """
+
+    # Validate required config FIRST
+    config = validate_for_operation("indexing")
 
     if not root:
         raise HTTPException(
@@ -71,8 +85,9 @@ async def index_rebuild(root: str = Body(..., embed=True), force: bool = Body(Fa
             },
         )
 
+    # Use config.indexing.index_dir instead of os.getenv("INDEX_DIR")
     return StreamingResponse(
-        create_rebuild_stream(root, os.getenv("INDEX_DIR"), force),
+        create_rebuild_stream(root, config.indexing.index_dir, force),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -95,18 +110,18 @@ def find_duplicate_files(vault_root: str | None = None):
 
     Returns:
         Groups of files with identical content, potential space savings
-    """
-    # Load registry from disk to get latest state
-    index_dir = os.getenv("INDEX_DIR")
-    if not index_dir:
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "code": "INDEX_DIR_NOT_SET",
-                "message": "INDEX_DIR environment variable not set",
-            },
-        )
 
+    Requires configuration:
+    - indexing.index_dir must be set
+    """
+    # Validate required config
+    config = get_current_config()
+    require_config_field(
+        "indexing.index_dir", config.indexing.index_dir, "duplicate detection"
+    )
+
+    # Use config.indexing.index_dir
+    index_dir = cast(str, config.indexing.index_dir)
     registry_path = Path(index_dir) / "doc_registry.json"
 
     if not registry_path.exists():
@@ -148,9 +163,15 @@ def find_duplicate_files(vault_root: str | None = None):
             "message": "Registry is empty. Run index rebuild first.",
         }
 
-    # Resolve vault root
+    # Resolve vault root - use config if not provided
     if vault_root is None:
-        vault_root = os.getenv("VAULT_ROOT", os.getcwd())
+        vault_root = config.vault.vault_path
+        if not vault_root:
+            # Fallback to current directory if vault_path not set
+            import os
+
+            vault_root = os.getcwd()
+
     vault_path = Path(vault_root)
 
     # Group files by (hash, size) tuple for stronger duplicate detection

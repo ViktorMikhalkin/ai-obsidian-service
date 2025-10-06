@@ -28,6 +28,7 @@ app = typer.Typer(help="AI→Obsidian CLI (iteration-5, MD+PDF+EPUB)")
 
 # ---------- small logging helpers ----------
 
+
 def _ts(msg: str) -> None:
     """Plain, stable logging (TTY/CI friendly)."""
     typer.echo(f"[{_dt.now().strftime('%H:%M:%S')}] {msg}")
@@ -35,13 +36,16 @@ def _ts(msg: str) -> None:
 
 class _Ticker:
     """Emit logs at most once per 'interval' seconds."""
+
     def __init__(self, interval_sec: float = 2.0):
         import time as _t
+
         self.interval = interval_sec
         self._last = _t.perf_counter()
 
     def should_log(self) -> bool:
         import time as _t
+
         now = _t.perf_counter()
         if now - self._last >= self.interval:
             self._last = now
@@ -61,10 +65,12 @@ def _yaml_dump(obj: dict) -> str:
         result = yaml.safe_dump(obj, sort_keys=False, allow_unicode=True)
         return str(result)  # Ensure we return a string
     import json as _json
+
     return _json.dumps(obj, ensure_ascii=False, indent=2)
 
 
 # ---------- config & scan ----------
+
 
 def load_config() -> dict:
     """
@@ -79,7 +85,10 @@ def load_config() -> dict:
     # SAFETY for CI/tests
     if str(os.environ.get("AIOBS_TEST_MODE", "0")) == "1":
         import tempfile
-        safe_root = os.environ.get("AIOBS_TEST_INDEX_DIR") or tempfile.mkdtemp(prefix="aiobs-test-")
+
+        safe_root = os.environ.get("AIOBS_TEST_INDEX_DIR") or tempfile.mkdtemp(
+            prefix="aiobs-test-"
+        )
         safe_index_dir = str(Path(safe_root) / "index")
         Path(safe_index_dir).mkdir(parents=True, exist_ok=True)
         cfg["index_dir"] = safe_index_dir
@@ -113,7 +122,10 @@ def is_excluded(p: Path, excludes: Iterable[str]) -> bool:
 
 # ---------- DI builder (iteration-5, all parsers) ----------
 
-def _build_search_service(index_dir: str | None, *, max_chars: int, overlap: int) -> SearchService:
+
+def _build_search_service(
+    index_dir: str | None, *, max_chars: int, overlap: int
+) -> SearchService:
     """
     Build SearchService using iteration-5 DI:
       - parsers: Markdown + PDF + EPUB (equal footing)
@@ -142,6 +154,7 @@ def _build_search_service(index_dir: str | None, *, max_chars: int, overlap: int
 
 # ---------- commands ----------
 
+
 @app.command()
 def build() -> None:
     """
@@ -165,7 +178,9 @@ def build() -> None:
     overlap = max(0, overlap_tokens * 4)
 
     index_dir = cfg.get("index_dir")
-    service = _build_search_service(index_dir=index_dir, max_chars=max_chars, overlap=overlap)
+    service = _build_search_service(
+        index_dir=index_dir, max_chars=max_chars, overlap=overlap
+    )
 
     # collect files
     files: list[Path] = []
@@ -203,7 +218,9 @@ def build() -> None:
             eta = _fmt_eta((total - done) / rate if rate > 0 else 0)
             _ts(f"[index] {done}/{total} ({pct}%) | {rate:.1f} files/s | ETA {eta}")
 
-    _ts(f"[done] files={done}  chunks={indexed_chunks}  index_dir={index_dir or '<store-default>'}")
+    _ts(
+        f"[done] files={done}  chunks={indexed_chunks}  index_dir={index_dir or '<store-default>'}"
+    )
 
 
 @app.command()
@@ -212,6 +229,7 @@ def serve(host: str = "127.0.0.1", port: int = 8000) -> None:
     Run the API with autoreload for local development.
     """
     import uvicorn
+
     uvicorn.run("ai_obsidian_service.api.app:app", host=host, port=port, reload=True)
 
 
@@ -231,6 +249,7 @@ def index(dir: str, server: str = "http://127.0.0.1:8000") -> None:
     import json as _json
     from urllib.parse import urlencode
     from urllib.request import Request, urlopen
+
     url = f"{server.rstrip('/')}/index/rebuild?" + urlencode({"root": dir})
     req = Request(url, method="POST")
     with urlopen(req) as resp:
@@ -244,14 +263,15 @@ def index(dir: str, server: str = "http://127.0.0.1:8000") -> None:
 
 @app.command()
 def search(
-        query: str,
-        top_k: int = 5,
-        collection: str | None = None,
-        server: str = "http://127.0.0.1:8000",
+    query: str,
+    top_k: int = 5,
+    collection: str | None = None,
+    server: str = "http://127.0.0.1:8000",
 ) -> None:
     """Call /search and print results."""
     import json as _json
     from urllib.request import Request, urlopen
+
     body: dict[str, Any] = {"query": query, "top_k": int(top_k)}
     if collection:
         body["collection"] = collection
@@ -276,6 +296,7 @@ def info(server: str = "http://127.0.0.1:8000") -> None:
     """Print /info manifest."""
     import json as _json
     from urllib.request import urlopen
+
     url = f"{server.rstrip('/')}/info"
     with urlopen(url) as resp:
         out = resp.read().decode("utf-8")

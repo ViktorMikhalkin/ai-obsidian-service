@@ -14,8 +14,7 @@ class _Chunk:
 
 
 class _LLMProtocol(Protocol):
-    def generate(self, prompt: str, system: str | None = None) -> str:
-        ...
+    def generate(self, prompt: str, system: str | None = None) -> str: ...
 
 
 def _sr(snippet: str, text: str = "lorem ipsum dolor") -> SearchResult:
@@ -29,7 +28,9 @@ def _sr(snippet: str, text: str = "lorem ipsum dolor") -> SearchResult:
         snippet=snippet,
         chunk=ch,  # type: ignore[arg-type]
     )
-    return SearchResult(query=q, hits=[hit], total_time_ms=0.1, retrieved_at=datetime.now())
+    return SearchResult(
+        query=q, hits=[hit], total_time_ms=0.1, retrieved_at=datetime.now()
+    )
 
 
 def test_answer_with_citations_mini_mode() -> None:

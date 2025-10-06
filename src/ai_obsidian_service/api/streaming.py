@@ -32,10 +32,12 @@ async def create_rebuild_stream(
             if registry_path.exists():
                 try:
                     rebuild_service.index.load_registry(registry_path)
+                    # Access _doc_registry as Any since it's not in base EmbeddingIndex
+                    doc_registry = getattr(rebuild_service.index, "_doc_registry", {})
                     log_structured(
                         "info",
                         "registry_preloaded",
-                        documents=len(rebuild_service.index._doc_registry),
+                        documents=len(doc_registry),
                     )
                 except Exception as e:
                     log_structured("warning", "registry_preload_failed", error=str(e))

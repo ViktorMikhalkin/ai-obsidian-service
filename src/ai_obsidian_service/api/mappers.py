@@ -9,6 +9,7 @@ from ai_obsidian_service.domain.models import Hit, Query
 class ResolveMeta(Protocol):
     def __call__(self, *, chunk_id: str) -> dict[str, Any]: ...
 
+
 def hit_to_search_hit(hit: Hit, resolve_meta: ResolveMeta) -> SearchHitDTO:
     meta = hit.metadata or (hit.chunk.metadata if hit.chunk else None) or {}
     cid = hit.chunk_id or (hit.chunk.id if hit.chunk else "")
@@ -25,9 +26,19 @@ def hit_to_search_hit(hit: Hit, resolve_meta: ResolveMeta) -> SearchHitDTO:
         chunk_id=cid,
     )
 
-def hits_to_search_response(query: Query, hits: list[Hit], resolve_meta: ResolveMeta) -> SearchResponse:
-    return SearchResponse(query=query.text, top_k=query.top_k, hits=[hit_to_search_hit(h, resolve_meta) for h in hits])
+
+def hits_to_search_response(
+    query: Query, hits: list[Hit], resolve_meta: ResolveMeta
+) -> SearchResponse:
+    return SearchResponse(
+        query=query.text,
+        top_k=query.top_k,
+        hits=[hit_to_search_hit(h, resolve_meta) for h in hits],
+    )
+
 
 # Для обратной совместимости
-def answer_to_answer_response(query: str, answer: str, hits: list[Hit], resolve_meta: ResolveMeta):
+def answer_to_answer_response(
+    query: str, answer: str, hits: list[Hit], resolve_meta: ResolveMeta
+):
     return answer, [hit_to_search_hit(h, resolve_meta) for h in hits]

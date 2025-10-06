@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
 from ai_obsidian_service.adapters.parsers import all_parsers
 from ai_obsidian_service.adapters.services.search_service import SearchService
+from ai_obsidian_service.api.endpoints.config import get_current_config
+from ai_obsidian_service.core import Chunker  # Import the base protocol/interface
 from ai_obsidian_service.index.embedder_sentence_transformers import (
     SentenceTransformersEmbedder,
 )
 from ai_obsidian_service.index.embedding_index import EmbeddingIndex
 from ai_obsidian_service.index.faiss_store import FaissVectorStore
 from ai_obsidian_service.index.memory_store import InMemoryVectorStore
+
+if TYPE_CHECKING:
+    pass
 
 try:
     from ai_obsidian_service.rerank.bm25 import BM25Reranker
@@ -29,60 +33,27 @@ log = logging.getLogger(__name__)
 class Components:
     embedder: Any
     store: Any
-    index: Any  # Can be EmbeddingIndex or EnhancedEmbeddingIndex
+    index: Any
     search: SearchService
 
 
 def _maybe_make_bm25() -> tuple[Any | None, int]:
-    """
-    ENABLE_BM25 = "1" | "0" (default "1")
-    BM25_TOPN   = int       (default 50)
-    """
-    enabled = os.getenv("ENABLE_BM25", "1") == "1"
-    topn = int(os.getenv("BM25_TOPN", "50"))
-    if not enabled:
-        return None, topn
+    """Create BM25 reranker based on config."""
+    config = get_current_config()
+
+    if not config.bm25.enabled:
+        return None, config.bm25.top_n
     if BM25RerankerType is None:
         log.debug("BM25Reranker module not available; rerank disabled.")
-        return None, topn
+        return None, config.bm25.top_n
     try:
-        return BM25RerankerType(), topn
+        return BM25RerankerType(), config.bm25.top_n
     except Exception as e:
         log.debug("BM25Reranker init failed: %s; rerank disabled.", e)
-        return None, topn
+        return None, config.bm25.top_n
 
 
-def _get_chunker() -> SimpleChunker:
-    """
-    Get chunker based on environment settings.
-
-    USE_TOKEN_CHUNKING=1 -> SemanticChunker (token-based)
-    USE_TOKEN_CHUNKING=0 -> SimpleChunker (char-based, default)
-    """
-    use_token_chunking = os.getenv("USE_TOKEN_CHUNKING", "0") == "1"
-
-    if use_token_chunking:
-        try:
-            from ai_obsidian_service.adapters.chunkers.semantic_chunker import (
-                SemanticChunker,
-            )
-
-            max_tokens = int(os.getenv("CHUNK_MAX_TOKENS", "750"))
-            overlap_tokens = int(os.getenv("CHUNK_OVERLAP_TOKENS", "75"))
-            log.info(
-                f"Using SemanticChunker: max_tokens={max_tokens}, overlap={overlap_tokens}"
-            )
-            return SemanticChunker(max_tokens=max_tokens, overlap_tokens=overlap_tokens)  # type: ignore
-        except ImportError:
-            log.warning("SemanticChunker not available, falling back to SimpleChunker")
-
-    max_chars = int(os.getenv("CHUNK_MAX_CHARS", "1500"))
-    overlap_chars = int(os.getenv("CHUNK_OVERLAP_CHARS", "150"))
-    log.info(f"Using SimpleChunker: max_chars={max_chars}, overlap={overlap_chars}")
-    return SimpleChunker(max_chars=max_chars, overlap=overlap_chars)
-
-
-def _make_memory(*, model_name: str, chunker: SimpleChunker) -> Components:
+def _make_memory(*, model_name: str, chunker: Chunker) -> Components:
     embedder = SentenceTransformersEmbedder(model_name=model_name)
     store = InMemoryVectorStore(dim=None)
     index = EmbeddingIndex(embedder=embedder, store=store, chunker=chunker)
@@ -96,14 +67,14 @@ def _make_memory(*, model_name: str, chunker: SimpleChunker) -> Components:
 
 
 def _make_faiss(
-    *, model_name: str, index_dir: str | None, chunker: SimpleChunker
+    *, model_name: str, index_dir: str | None, chunker: Chunker
 ) -> Components:
     from pathlib import Path
 
+    config = get_current_config()
     embedder = SentenceTransformersEmbedder(model_name=model_name)
 
     # Always create empty store for fast startup
-    # Loading happens asynchronously in the lifespan
     store = FaissVectorStore(dim=None)
     log.info("FAISS store initialized (empty)")
 
@@ -119,19 +90,17 @@ def _make_faiss(
     else:
         log.info("No existing index found - starting fresh")
 
-    # Check if incremental indexing is enabled
-    use_incremental = os.getenv("ENABLE_INCREMENTAL_INDEXING", "1") == "1"
+    # Use Any type to allow dynamic attribute assignment
+    index: Any
 
-    # Type annotation to help MyPy
-    index: EmbeddingIndex | Any
-
-    if use_incremental:
+    if config.indexing.enable_incremental:
         try:
             from ai_obsidian_service.index.enhanced_embedding_index import (
                 EnhancedEmbeddingIndex,
             )
 
-            enable_dedup = os.getenv("ENABLE_CHUNK_DEDUP", "1") == "1"
+            # Default enable_dedup to True
+            enable_dedup = True
 
             index = EnhancedEmbeddingIndex(
                 embedder=embedder,
@@ -141,6 +110,7 @@ def _make_faiss(
             )
 
             # Store index_dir for later background loading
+            # Using Any type allows dynamic attributes
             index._pending_load_path = index_dir if should_load else None
             index._pending_load_model = model_name if should_load else None
 
@@ -164,35 +134,56 @@ def _make_faiss(
     reranker, rerank_topn = _maybe_make_bm25()
     search = SearchService(
         index=index, parsers=parsers, reranker=reranker, rerank_topn=rerank_topn
-    )  # type: ignore[arg-type]
+    )
     return Components(embedder=embedder, store=store, index=index, search=search)
 
 
-def make_components(*, chunker: SimpleChunker | None = None) -> Components:
+def make_components(
+    *, chunker: Chunker | None = None, index_dir: str | None = None
+) -> Components:
     """
-    Env-driven DI:
-      VECTOR_STORE_BACKEND = memory | faiss (default: memory)
-      EMBEDDINGS_MODEL     = sentence-transformers model (default: multilingual-e5-small)
-      INDEX_DIR            = path for FAISS persistence (faiss backend)
-      ENABLE_BM25          = 1|0 (default 1)
-      BM25_TOPN            = int (default 50)
-
-      Optimization flags:
-      USE_TOKEN_CHUNKING          = 1|0 (default 0) - Use SemanticChunker with tiktoken
-      ENABLE_INCREMENTAL_INDEXING = 1|0 (default 1) - Skip unchanged documents
-      ENABLE_CHUNK_DEDUP          = 1|0 (default 1) - Enable chunk deduplication
-      CHUNK_MAX_TOKENS            = int (default 750) - For token-based chunking
-      CHUNK_OVERLAP_TOKENS        = int (default 75) - For token-based chunking
-      CHUNK_MAX_CHARS             = int (default 1500) - For char-based chunking
-      CHUNK_OVERLAP_CHARS         = int (default 150) - For char-based chunking
+    Config-driven DI using configuration endpoint.
+    Falls back to environment variables if config not available.
     """
-    backend = (os.getenv("VECTOR_STORE_BACKEND") or "memory").lower()
-    model_name = os.getenv("EMBEDDINGS_MODEL") or "intfloat/multilingual-e5-small"
-    index_dir = os.getenv("INDEX_DIR")
+    config = get_current_config()
 
+    backend = config.indexing.backend or "memory"
+    model_name = config.embeddings.model or "intfloat/multilingual-e5-small"
+
+    # Use provided index_dir or fall back to config
+    if index_dir is None:
+        index_dir = config.indexing.index_dir
+
+    # Create chunker if not provided
+    actual_chunker: Chunker
     if chunker is None:
-        chunker = _get_chunker()
+        # Chunker should already be created in container.py
+        # This is a fallback
+        if config.chunking.use_token_chunking:
+            try:
+                from ai_obsidian_service.adapters.chunkers.semantic_chunker import (
+                    SemanticChunker,
+                )
+
+                actual_chunker = SemanticChunker(
+                    max_tokens=config.chunking.target_tokens,
+                    overlap_tokens=config.chunking.overlap_tokens,
+                )
+            except ImportError:
+                actual_chunker = SimpleChunker(
+                    max_chars=config.chunking.max_chars,
+                    overlap=config.chunking.overlap_chars,
+                )
+        else:
+            actual_chunker = SimpleChunker(
+                max_chars=config.chunking.max_chars,
+                overlap=config.chunking.overlap_chars,
+            )
+    else:
+        actual_chunker = chunker
 
     if backend == "faiss":
-        return _make_faiss(model_name=model_name, index_dir=index_dir, chunker=chunker)
-    return _make_memory(model_name=model_name, chunker=chunker)
+        return _make_faiss(
+            model_name=model_name, index_dir=index_dir, chunker=actual_chunker
+        )
+    return _make_memory(model_name=model_name, chunker=actual_chunker)

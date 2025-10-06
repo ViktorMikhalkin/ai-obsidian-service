@@ -23,6 +23,7 @@ class InMemoryVectorStore:
     """
     Simple in-memory vector store (no FAISS). Keeps embeddings and chunk metadata.
     """
+
     dim: int | None = None
 
     # IMPORTANT: with slots=True we must declare attributes as fields

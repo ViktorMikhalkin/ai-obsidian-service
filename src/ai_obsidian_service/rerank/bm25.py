@@ -12,6 +12,7 @@ from ai_obsidian_service.domain.models import Hit
 def _tokenize(text: str) -> list[str]:
     # ultra-simple tokenizer: lowercase + split on non-alnum
     import re
+
     return [t for t in re.split(r"[^0-9a-zA-Z]+", (text or "").lower()) if t]
 
 
@@ -44,10 +45,13 @@ def _hit_text(h: Hit) -> str:
 @dataclass(slots=True)
 class BM25Reranker:
     """Lightweight BM25 re-ranker for top-N vector hits."""
+
     k1: float = 1.2
     b: float = 0.75
 
-    def rerank(self, *, query: str, hits: Sequence[Hit], limit: int | None = None) -> list[Hit]:
+    def rerank(
+        self, *, query: str, hits: Sequence[Hit], limit: int | None = None
+    ) -> list[Hit]:
         """
         BM25 re-ranking over retrieved hits.
         - Stable: ties keep original order.

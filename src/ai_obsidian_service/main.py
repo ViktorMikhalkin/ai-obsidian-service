@@ -70,7 +70,11 @@ def _shutdown_service(service: SearchService | None) -> None:
 
     try:
         # Try to shutdown the store if it has a close method
-        if hasattr(service, "index") and hasattr(service.index, "store") and hasattr(service.index.store, "close"):
+        if (
+            hasattr(service, "index")
+            and hasattr(service.index, "store")
+            and hasattr(service.index.store, "close")
+        ):
             service.index.store.close()
     except Exception:
         pass
@@ -93,6 +97,7 @@ def _install_sigterm(service: SearchService | None) -> None:
 
 
 # ---------------------- commands ---------------------- #
+
 
 def cmd_index_root(args: argparse.Namespace) -> int:
     """
@@ -184,12 +189,15 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 # ---------------------- CLI wiring ---------------------- #
 
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="ai-obsidian",
         description="AI→Obsidian service entrypoint",
     )
-    p.add_argument("--index-dir", default=None, help="Directory for FAISS index (optional)")
+    p.add_argument(
+        "--index-dir", default=None, help="Directory for FAISS index (optional)"
+    )
 
     sp = p.add_subparsers(dest="cmd", required=True)
 
@@ -206,7 +214,9 @@ def build_parser() -> argparse.ArgumentParser:
     # search
     p_search = sp.add_parser("search", help="Search by a text query")
     p_search.add_argument("query", help="Query text")
-    p_search.add_argument("--top-k", type=int, default=5, help="Number of hits to return")
+    p_search.add_argument(
+        "--top-k", type=int, default=5, help="Number of hits to return"
+    )
     p_search.set_defaults(func=cmd_search)
 
     # status
