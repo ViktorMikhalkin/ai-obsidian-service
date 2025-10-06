@@ -1,6 +1,5 @@
 """Search and answer (RAG) endpoints."""
 
-import os
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
@@ -16,6 +15,7 @@ from ai_obsidian_service.api.mappers import hits_to_search_response
 from ai_obsidian_service.api.schemas import AnswerRequest, SearchRequest
 from ai_obsidian_service.domain.models import Query
 from ai_obsidian_service.rag import answer_with_citations
+from ai_obsidian_service.utils.config_helpers import ConfigValidator
 
 router = APIRouter()
 
@@ -23,6 +23,10 @@ router = APIRouter()
 @router.post("/search")
 def api_search(req: SearchRequest):
     """Vector search with optional collection filter."""
+
+    validator = ConfigValidator()
+    validator.require_search()
+
     try:
         result = _service.search_text(
             req.query, top_k=req.top_k, collection=req.collection
@@ -57,10 +61,14 @@ def api_search(req: SearchRequest):
 @router.post("/answer")
 def api_answer(req: AnswerRequest):
     """Retrieve relevant chunks and generate an answer using LLM (RAG)."""
+
+    validator = ConfigValidator()
+    _config = validator.require_rag()
+
     try:
         result = _service.search_text(req.query, top_k=req.top_k)
 
-        system_prompt = os.getenv("OLLAMA_SYSTEM_PROMPT")
+        system_prompt = None
         text, _ = answer_with_citations(
             query=req.query,
             result=result,

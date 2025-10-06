@@ -1,7 +1,7 @@
-
 """
 Public façade for domain entities and ports.
 """
+
 from .domain.models import Chunk, ChunkId, DocId, Document, Hit, Query, SearchResult
 from .ports.interfaces import (
     Chunker,

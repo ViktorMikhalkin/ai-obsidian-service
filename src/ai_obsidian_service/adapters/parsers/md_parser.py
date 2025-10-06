@@ -56,7 +56,9 @@ class MarkdownParser:
         )
 
     # Optional utility for property tests
-    def parse_text(self, text: str, *, vault_root: str = "", source_rel_path: str = "<memory>") -> Document:
+    def parse_text(
+        self, text: str, *, vault_root: str = "", source_rel_path: str = "<memory>"
+    ) -> Document:
         rel_posix = PurePosixPath(source_rel_path).as_posix()
         return Document(
             id=source_id(rel_posix),

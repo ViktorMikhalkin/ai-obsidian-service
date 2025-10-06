@@ -26,11 +26,18 @@ class Components:
     search: SearchService
 
 
-def make_components(*, chunker: Chunker, model_name: str = "sentence-transformers/all-MiniLM-L6-v2") -> Components:
+def make_components(
+    *, chunker: Chunker, model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+) -> Components:
     """Wire FAISS + SentenceTransformers with zero fallbacks."""
     embedder = SentenceTransformersEmbedder(model_name=model_name)
     store = FaissVectorStore()
-    raw = cast(Sequence[DocumentParser], cast(object, [MarkdownParser(), PdfParser(), EpubParser()]))
+    raw = cast(
+        Sequence[DocumentParser],
+        cast(object, [MarkdownParser(), PdfParser(), EpubParser()]),
+    )
     index = EmbeddingIndex(embedder=embedder, store=store, chunker=chunker)
     search = SearchService(index=index, parsers=raw)
-    return Components(embedder=embedder, store=store, index=index, parsers=raw, search=search)
+    return Components(
+        embedder=embedder, store=store, index=index, parsers=raw, search=search
+    )

@@ -29,7 +29,9 @@ def test_answer_endpoint_minimal(monkeypatch):
     client = TestClient(api_app.app)
 
     # Patch SearchService.search_text at class level to avoid read-only attribute errors
-    def _fake_search(self, q: str, top_k: int = 5, collection: str | None = None) -> SearchResult:
+    def _fake_search(
+        self, q: str, top_k: int = 5, collection: str | None = None
+    ) -> SearchResult:
         ch = Chunk(
             id="c1",
             doc_id="d1",

@@ -14,10 +14,10 @@ class IndexCorpus:
     """
 
     def __init__(
-            self,
-            parsers: Iterable[DocumentParser],
-            chunker: Chunker,              # keep in signature for DI consistency, though not used internally
-            service: SearchService,
+        self,
+        parsers: Iterable[DocumentParser],
+        chunker: Chunker,  # keep in signature for DI consistency, though not used internally
+        service: SearchService,
     ) -> None:
         self.parsers = list(parsers)
         self.service = service
@@ -43,12 +43,14 @@ class IndexCorpus:
         try:
             store = self.service.index.store
             # Check if this is a FAISS store with save method
-            if hasattr(store, 'save'):
+            if hasattr(store, "save"):
                 index_dir = os.getenv("INDEX_DIR")
                 if index_dir:
                     # Get model name from embedder if available
                     model_name = None
-                    if hasattr(self.service.index, 'embedder') and hasattr(self.service.index.embedder, 'model_name'):
+                    if hasattr(self.service.index, "embedder") and hasattr(
+                        self.service.index.embedder, "model_name"
+                    ):
                         model_name = self.service.index.embedder.model_name
 
                     store.save(index_dir, model_name=model_name)

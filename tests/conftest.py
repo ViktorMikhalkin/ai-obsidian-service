@@ -17,6 +17,7 @@ os.environ.setdefault("OLLAMA_MODEL", "")
 def _has_faiss_cpu() -> bool:
     try:
         import faiss
+
         _ = faiss.IndexFlatL2(2)
         return True
     except Exception:
@@ -26,10 +27,16 @@ def _has_faiss_cpu() -> bool:
 HAS_FAISS_CPU = _has_faiss_cpu()
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
     skip_faiss = pytest.mark.skip(reason="FAISS (CPU) not available")
     for item in items:
-        if ("integration_cpu" in item.keywords) or ("faiss" in item.keywords) or ("requires_faiss" in item.keywords):
+        if (
+            ("integration_cpu" in item.keywords)
+            or ("faiss" in item.keywords)
+            or ("requires_faiss" in item.keywords)
+        ):
             if not HAS_FAISS_CPU:
                 item.add_marker(skip_faiss)
 
@@ -38,6 +45,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 def _iter_files(root: Path, patterns: Iterable[str]) -> Iterable[Path]:
     import fnmatch
     import os as _os
+
     for dirpath, _, filenames in _os.walk(root):
         for name in filenames:
             p = Path(dirpath) / name

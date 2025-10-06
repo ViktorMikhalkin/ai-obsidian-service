@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import contextvars
@@ -13,13 +12,18 @@ _TZ = getattr(datetime, "UTC", datetime.UTC)
 
 # ------------ request-id context ------------
 
-_request_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("request_id", default=None)
+_request_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "request_id", default=None
+)
+
 
 def set_request_id(value: str | None) -> None:
     _request_id.set(value)
 
+
 def get_request_id() -> str | None:
     return _request_id.get()
+
 
 class RequestIdFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
@@ -28,10 +32,13 @@ class RequestIdFilter(logging.Filter):
             record.requestId = rid
         return True
 
+
 # ------------ JSON logging ------------
+
 
 class JsonFormatter(logging.Formatter):
     """Minimal JSON formatter with ISO 8601 timestamps and requestId propagation."""
+
     def __init__(self, *, extra_keys: Iterable[str] | None = None) -> None:
         super().__init__()
         self._extra_keys = tuple(extra_keys or ())
@@ -51,6 +58,7 @@ class JsonFormatter(logging.Formatter):
                 payload[k] = getattr(record, k)
         return json.dumps(payload, ensure_ascii=False)
 
+
 def configure_logging(level: int | None = None) -> None:
     level_name = os.getenv("AIOS_LOG_LEVEL", "").upper()
     if level is None and level_name:
@@ -64,6 +72,7 @@ def configure_logging(level: int | None = None) -> None:
     handler.addFilter(RequestIdFilter())
     root.handlers.clear()
     root.addHandler(handler)
+
 
 def get_json_logger(name: str) -> logging.Logger:
     lg = logging.getLogger(name)

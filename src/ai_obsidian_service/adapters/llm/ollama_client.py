@@ -8,6 +8,7 @@ import httpx
 class OllamaError(RuntimeError):
     pass
 
+
 class OllamaClient:
     """
     Minimal sync client for Ollama /api/generate (non-stream).
@@ -16,6 +17,7 @@ class OllamaClient:
       - OLLAMA_MODEL=llama3.1
       - OLLAMA_TIMEOUT=30
     """
+
     def __init__(self, base_url: str, model: str, *, timeout_s: float = 30.0) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -29,7 +31,11 @@ class OllamaClient:
             pass
 
     def generate(self, prompt: str, *, system: str | None = None) -> str:
-        payload: dict[str, Any] = {"model": self.model, "prompt": prompt, "stream": False}
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+        }
         if system:
             payload["system"] = system
         try:

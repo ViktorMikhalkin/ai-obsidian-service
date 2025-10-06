@@ -36,13 +36,16 @@ def test_collection_filter_works(search_service):
             if meta:
                 path = meta.get("path")
 
-        assert path is None or "/sub/" in path or str(path).startswith("sub/"), f"unexpected path: {path}"
+        assert path is None or "/sub/" in path or str(path).startswith("sub/"), (
+            f"unexpected path: {path}"
+        )
 
     # Ensure no root note is in the filtered set
     root_hits = [
-        h for h in res_sub.hits
+        h
+        for h in res_sub.hits
         if getattr(h, "chunk", None)
-           and getattr(h.chunk, "metadata", None)
-           and str(h.chunk.metadata.get("path", "")).endswith("note1.md")
+        and getattr(h.chunk, "metadata", None)
+        and str(h.chunk.metadata.get("path", "")).endswith("note1.md")
     ]
     assert not root_hits, "collection='sub' must exclude root note hits"

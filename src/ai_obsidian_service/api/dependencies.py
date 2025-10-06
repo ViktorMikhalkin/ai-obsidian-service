@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import sys
 import uuid
 from contextlib import asynccontextmanager
@@ -16,6 +15,7 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from ai_obsidian_service.adapters.llm.ollama_client import OllamaClient
+from ai_obsidian_service.api.endpoints.config import get_current_config
 from ai_obsidian_service.config.container import build_search_service
 from ai_obsidian_service.index.faiss_store import FaissVectorStore
 
@@ -62,19 +62,30 @@ def log_structured(level: str, message: str, **kwargs):
     log_func(log_msg)
 
 
-# Service initialization
-_service = build_search_service(index_dir=os.getenv("INDEX_DIR"))
+# Service initialization - uses config
+def _init_service():
+    """Initialize service using configuration."""
+    config = get_current_config()
+    index_dir = config.indexing.index_dir if config.indexing.index_dir else None
+    return build_search_service(index_dir=index_dir)
+
+
+_service = _init_service()
 
 
 def _make_ollama() -> OllamaClient | None:
-    """Initialize Ollama client if configured."""
-    base = os.getenv("OLLAMA_BASE_URL")
-    model = os.getenv("OLLAMA_MODEL")
-    if not base or not model:
+    """Initialize Ollama client from configuration."""
+    config = get_current_config()
+
+    if not config.ollama_base_url or not config.ollama_model:
         return None
-    timeout_s = float(os.getenv("OLLAMA_TIMEOUT", "30"))
+
     try:
-        return OllamaClient(base_url=base, model=model, timeout_s=timeout_s)
+        return OllamaClient(
+            base_url=config.ollama_base_url,
+            model=config.ollama_model,
+            timeout_s=config.ollama_timeout,
+        )
     except Exception:
         return None
 
@@ -89,7 +100,11 @@ _ocr_lock = asyncio.Lock()
 def resolve_meta(chunk_id: str) -> dict[str, Any]:
     """Resolve chunk metadata."""
     try:
-        return _service.resolve_meta(chunk_id=chunk_id)
+        result = _service.resolve_meta(chunk_id=chunk_id)
+        # Ensure we return a dict, not Any
+        if isinstance(result, dict):
+            return result
+        return {}
     except Exception:
         return {}
 

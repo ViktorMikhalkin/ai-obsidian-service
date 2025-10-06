@@ -27,7 +27,10 @@ class EmbeddingIndex:
             return
         texts = [c.text or "" for c in chunks]
         vecs = self.embedder.embed(texts)  # -> np.ndarray[float32] (N, D)
-        emb_chunks = [EmbeddedChunk(chunk=c, embedding=v) for c, v in zip(chunks, vecs, strict=False)]
+        emb_chunks = [
+            EmbeddedChunk(chunk=c, embedding=v)
+            for c, v in zip(chunks, vecs, strict=False)
+        ]
         self.store.upsert(emb_chunks)
 
     # index a single document (convenient shortcut)

@@ -1,0 +1,65 @@
+{
+  "vault": {
+    "vault_path": "/data/Obsidian/semantic-vault",
+    "library_paths": [
+      "/data/obsidian-test-lib"
+    ]
+  },
+  "parsing": {
+    "enable_pdf": true,
+    "enable_markdown": true,
+    "enable_epub": true,
+    "include_globs": [
+      "**/*.md",
+      "**/*.pdf",
+      "**/*.epub"
+    ],
+    "exclude_globs": [
+      "**/.trash/**",
+      "**/.obsidian/**",
+      "**/archive/**",
+      "**/.git/**",
+      "**/node_modules/**",
+      "**/*.png",
+      "**/*.jpg",
+      "**/*.jpeg",
+      "**/*.gif"
+    ]
+  },
+  "chunking": {
+    "use_token_chunking": true,
+    "target_tokens": 300,
+    "overlap_tokens": 60,
+    "max_chars": 1500,
+    "overlap_chars": 150
+  },
+  "embeddings": {
+    "model": "intfloat/multilingual-e5-small",
+    "device": "cuda",
+    "dtype": "fp32",
+    "batch_size": 128
+  },
+  "indexing": {
+    "backend": "faiss",
+    "index_dir": "./.index",
+    "enable_incremental": true,
+    "checkpoint_interval": 50,
+    "faiss": {
+      "search_on": "cpu",
+      "index_path": "index/faiss.index",
+      "dim_path": "index/dim.txt"
+    }
+  },
+  "bm25": {
+    "enabled": true,
+    "top_n": 50
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8000
+  },
+  "ollama_base_url": "http://localhost:11434",
+  "ollama_model": "qwen3:4b",
+  "ollama_timeout": 30.0,
+  "log_level": "INFO"
+}

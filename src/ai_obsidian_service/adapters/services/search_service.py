@@ -18,12 +18,12 @@ class SearchService:
     """
 
     def __init__(
-            self,
-            *,
-            index: EmbeddingIndex,
-            parsers: Sequence[DocumentParser],
-            reranker: BM25Reranker | None = None,
-            rerank_topn: int = 50,
+        self,
+        *,
+        index: EmbeddingIndex,
+        parsers: Sequence[DocumentParser],
+        reranker: BM25Reranker | None = None,
+        rerank_topn: int = 50,
     ) -> None:
         self.index = index
         self.parsers = list(parsers)
@@ -49,12 +49,13 @@ class SearchService:
 
         # For test compatibility, find vault root by looking for 'vault' in path
         from pathlib import Path
+
         path_obj = Path(path)
 
         # Walk up the path to find 'vault' directory
         vault_root = None
         for parent in path_obj.parents:
-            if parent.name == 'vault':
+            if parent.name == "vault":
                 vault_root = str(parent)
                 break
 
@@ -69,26 +70,41 @@ class SearchService:
 
     # ---------- search ----------
 
-    def _filter_by_collection(self, hits: Sequence[Hit], collection: str | None) -> list[Hit]:
+    def _filter_by_collection(
+        self, hits: Sequence[Hit], collection: str | None
+    ) -> list[Hit]:
         if not collection:
             return list(hits)
         want = collection
         out: list[Hit] = []
         for h in hits:
-            meta = (h.metadata or (h.chunk.metadata if (h.chunk and getattr(h.chunk, "metadata", None)) else None)) or {}
+            meta = (
+                h.metadata
+                or (
+                    h.chunk.metadata
+                    if (h.chunk and getattr(h.chunk, "metadata", None))
+                    else None
+                )
+            ) or {}
             if meta.get("collection") == want:
                 out.append(h)
         return out
 
-    def search_text(self, text: str, top_k: int = 5, collection: str | None = None) -> SearchResult:
+    def search_text(
+        self, text: str, top_k: int = 5, collection: str | None = None
+    ) -> SearchResult:
         # 1) retrieve topN from vector index
-        candidates_k = max(self.rerank_topn, top_k) if self.reranker is not None else top_k
+        candidates_k = (
+            max(self.rerank_topn, top_k) if self.reranker is not None else top_k
+        )
         result: SearchResult = self.index.search_text(text, top_k=int(candidates_k))
         hits = list(result.hits)
 
         # 2) (optional) BM25 rerank
         if self.reranker is not None and hits:
-            reranked: Iterable[Hit] = self.reranker.rerank(query=text, hits=hits[:candidates_k], limit=top_k)
+            reranked: Iterable[Hit] = self.reranker.rerank(
+                query=text, hits=hits[:candidates_k], limit=top_k
+            )
             hits = list(reranked)
 
         # 3) post-filter by collection + cut to top_k
