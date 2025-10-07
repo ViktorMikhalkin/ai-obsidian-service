@@ -8,11 +8,12 @@ from typing import cast
 from fastapi import APIRouter, Body, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from ai_obsidian_service.api.dependencies import _rebuild_lock, log_structured
+from ai_obsidian_service.api.dependencies import _rebuild_lock
 from ai_obsidian_service.api.endpoints.config import (
     get_current_config,
     require_config_field,
 )
+from ai_obsidian_service.api.logging import log_structured
 from ai_obsidian_service.api.streaming import create_rebuild_stream
 from ai_obsidian_service.utils.config_helpers import validate_for_operation
 

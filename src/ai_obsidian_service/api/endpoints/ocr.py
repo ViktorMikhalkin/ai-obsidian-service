@@ -10,7 +10,8 @@ from pathlib import Path
 from fastapi import APIRouter, Body, HTTPException, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from ai_obsidian_service.api.dependencies import _ocr_lock, log_structured, logger
+from ai_obsidian_service.api.dependencies import _ocr_lock
+from ai_obsidian_service.api.logging import log_structured, logger
 from ai_obsidian_service.utils.config_helpers import validate_for_operation
 
 try:

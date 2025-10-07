@@ -16,7 +16,7 @@ async def create_rebuild_stream(
     root: str, index_dir: str | None, force: bool = False
 ) -> AsyncGenerator[str, None]:
     """Generate SSE progress events for index rebuild."""
-    from ai_obsidian_service.api.dependencies import log_structured
+    from ai_obsidian_service.api.logging import log_structured
 
     try:
         log_structured("info", "index_rebuild_started", root=root, force=force)

@@ -6,11 +6,10 @@ from fastapi import APIRouter, HTTPException
 
 from ai_obsidian_service.api.dependencies import (
     _LLM,
-    _service,
-    log_structured,
-    logger,
+    get_service,
     resolve_meta,
 )
+from ai_obsidian_service.api.logging import log_structured, logger
 from ai_obsidian_service.api.mappers import hits_to_search_response
 from ai_obsidian_service.api.schemas import AnswerRequest, SearchRequest
 from ai_obsidian_service.domain.models import Query
@@ -28,7 +27,7 @@ def api_search(req: SearchRequest):
     validator.require_search()
 
     try:
-        result = _service.search_text(
+        result = get_service().search_text(
             req.query, top_k=req.top_k, collection=req.collection
         )
 
@@ -66,7 +65,7 @@ def api_answer(req: AnswerRequest):
     _config = validator.require_rag()
 
     try:
-        result = _service.search_text(req.query, top_k=req.top_k)
+        result = get_service().search_text(req.query, top_k=req.top_k)
 
         system_prompt = None
         text, _ = answer_with_citations(
