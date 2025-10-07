@@ -1,13 +1,14 @@
 """Configuration management endpoints."""
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from ai_obsidian_service.api.dependencies import log_structured
+from ai_obsidian_service.api.logging import log_structured
 
 router = APIRouter()
 
@@ -148,7 +149,6 @@ class IndexingConfig(BaseModel):
     )
 
     # FAISS-specific settings
-    # FIX: Use Field with default instead of default_factory for nested models
     faiss: FAISSConfig = Field(default=FAISSConfig())
 
     @field_validator("backend")
@@ -186,7 +186,6 @@ class ServiceConfig(BaseModel):
     """Complete service configuration."""
 
     # Core configurations
-    # FIX: Use Field with default instead of default_factory for nested Pydantic models
     vault: VaultConfig = Field(default=VaultConfig())
     parsing: ParsingConfig = Field(default=ParsingConfig())
     chunking: ChunkingConfig = Field(default=ChunkingConfig())
@@ -219,31 +218,115 @@ class ServiceConfig(BaseModel):
 _current_config: ServiceConfig | None = None
 
 
+def _should_apply_env_overrides() -> bool:
+    """
+    Determine if environment variable overrides should be applied.
+
+    In production: config/service_config.json (set via Obsidian plugin) is source of truth
+    In test/dev: environment variables can override config
+
+    Returns:
+        True if env overrides should be applied (test/dev mode)
+        False if config file is source of truth (production mode)
+    """
+    # Explicit test mode flag
+    if os.environ.get("AIOBS_TEST_MODE") == "1":
+        return True
+
+    # Dev mode: no config file exists yet
+    if not CONFIG_FILE.exists():
+        return True
+
+    # Production: config file (from Obsidian plugin) is source of truth
+    return False
+
+
+def _apply_env_overrides(config: ServiceConfig) -> ServiceConfig:
+    """
+    Apply environment variable overrides for test/dev environments.
+
+    This function is ONLY called when _should_apply_env_overrides() returns True.
+    In production, the config file from the Obsidian plugin is the source of truth.
+    """
+    overrides_applied = []
+
+    # Test mode - force memory backend
+    if os.environ.get("AIOBS_TEST_MODE") == "1":
+        config.indexing.backend = "memory"
+        overrides_applied.append("test_mode=memory_backend")
+
+    # Explicit backend override
+    if "VECTOR_STORE_BACKEND" in os.environ:
+        backend = os.environ["VECTOR_STORE_BACKEND"]
+        config.indexing.backend = backend
+        overrides_applied.append(f"backend={backend}")
+
+    # Model override
+    if "EMBEDDINGS_MODEL" in os.environ:
+        config.embeddings.model = os.environ["EMBEDDINGS_MODEL"]
+        overrides_applied.append(f"model={os.environ['EMBEDDINGS_MODEL']}")
+
+    # Index directory override
+    if "INDEX_DIR" in os.environ:
+        config.indexing.index_dir = os.environ["INDEX_DIR"]
+        overrides_applied.append(f"index_dir={os.environ['INDEX_DIR']}")
+
+    # Ollama configuration
+    if "OLLAMA_BASE_URL" in os.environ:
+        config.ollama_base_url = os.environ["OLLAMA_BASE_URL"]
+        overrides_applied.append("ollama_base_url")
+
+    if "OLLAMA_MODEL" in os.environ:
+        config.ollama_model = os.environ["OLLAMA_MODEL"]
+        overrides_applied.append("ollama_model")
+
+    if "OLLAMA_TIMEOUT" in os.environ:
+        try:
+            config.ollama_timeout = float(os.environ["OLLAMA_TIMEOUT"])
+            overrides_applied.append("ollama_timeout")
+        except ValueError:
+            pass
+
+    if overrides_applied:
+        log_structured(
+            "debug",
+            "config_env_overrides_applied",
+            overrides=", ".join(overrides_applied),
+        )
+
+    return config
+
+
 def get_current_config() -> ServiceConfig:
     """
-    Get current active configuration, loading from disk if needed.
-    Returns default config with warnings if file doesn't exist.
+    Get current active configuration.
+
+    Configuration priority:
+    - Production: config/service_config.json (set via Obsidian plugin POST /config)
+    - Test/Dev: Environment variables override config file
+
+    Test/dev mode is detected by:
+    1. AIOBS_TEST_MODE=1 environment variable
+    2. No config file exists (development setup)
     """
     global _current_config
 
     if _current_config is None:
         if not CONFIG_FILE.exists():
-            # FIX: Remove 'message' keyword to avoid conflict
             log_structured(
                 "warning",
                 "config_not_found",
                 path=str(CONFIG_FILE),
                 details="Using default configuration. Set config via POST /config",
             )
-            _current_config = ServiceConfig()
+            config = ServiceConfig()
         else:
             try:
                 with open(CONFIG_FILE, encoding="utf-8") as f:
                     data = json.load(f)
-                _current_config = ServiceConfig(**data)
+                config = ServiceConfig(**data)
                 log_structured("info", "config_loaded_from_disk", path=str(CONFIG_FILE))
             except Exception as e:
-                # FIX: Remove 'message' keyword to avoid conflict
                 log_structured(
                     "error",
                     "config_load_failed",
@@ -251,7 +334,20 @@ def get_current_config() -> ServiceConfig:
                     error=str(e),
                     details="Using default configuration",
                 )
-                _current_config = ServiceConfig()
+                config = ServiceConfig()
+
+        # Apply environment variable overrides ONLY in test/dev mode
+        if _should_apply_env_overrides():
+            config = _apply_env_overrides(config)
+            log_structured(
+                "info", "config_mode", mode="test/dev", env_overrides_enabled=True
+            )
+        else:
+            log_structured(
+                "info", "config_mode", mode="production", source="config_file"
+            )
+
+        _current_config = config
 
     return _current_config
 
@@ -306,7 +402,9 @@ def get_config() -> ServiceConfig:
     Get current active configuration.
 
     Returns the configuration that is currently in use by the service.
-    If no config file exists, returns default configuration with warnings logged.
+
+    In production: Returns config from config/service_config.json (set via POST /config)
+    In test/dev: Returns config with environment variable overrides applied
     """
     try:
         config = get_current_config()
@@ -347,12 +445,16 @@ def get_config() -> ServiceConfig:
 @router.post("/config", response_model=dict[str, Any])
 def set_config(config: ServiceConfig):
     """
-    Set new service configuration.
+    Set new service configuration and save to disk.
+
+    This is the primary way to configure the service in production (e.g., from Obsidian plugin).
 
     - Validates all settings using Pydantic models
-    - Persists to disk (config/service_config.json)
+    - Persists to config/service_config.json
     - Settings apply to NEW operations only (ongoing operations continue with previous config)
-    - Returns confirmation with warnings about when changes take effect
+    - In test/dev mode: Environment variables will override saved config values
+
+    Returns confirmation with warnings about when changes take effect.
 
     Note: Some changes (like embedding model or backend) may require service restart
     and index rebuild to take full effect.
@@ -363,30 +465,49 @@ def set_config(config: ServiceConfig):
         # Validate by attempting to create the model (already done by FastAPI, but explicit)
         validated_config = ServiceConfig(**config.model_dump())
 
-        # Save to disk
+        # Save to disk (without env overrides - those are applied at load time in test/dev)
         save_config(validated_config)
 
         # Update in-memory config
-        _current_config = validated_config
+        # In production mode: use saved config as-is
+        # In test/dev mode: apply env overrides
+        if _should_apply_env_overrides():
+            _current_config = _apply_env_overrides(validated_config)
+        else:
+            _current_config = validated_config
 
         log_structured(
             "info",
             "config_updated",
-            backend=validated_config.indexing.backend,
-            model=validated_config.embeddings.model,
-            index_dir=validated_config.indexing.index_dir,
+            backend=_current_config.indexing.backend,
+            model=_current_config.embeddings.model,
+            index_dir=_current_config.indexing.index_dir,
         )
 
         warnings = _generate_warnings(validated_config)
-        setup_warnings = _generate_setup_warnings(validated_config)
+        setup_warnings = _generate_setup_warnings(_current_config)
+
+        # Note if env overrides are active (test/dev mode only)
+        env_override_note = []
+        if _should_apply_env_overrides():
+            if os.environ.get("AIOBS_TEST_MODE") == "1":
+                env_override_note.append(
+                    "Running in test mode: AIOBS_TEST_MODE=1 forces memory backend"
+                )
+            if "VECTOR_STORE_BACKEND" in os.environ:
+                env_override_note.append(
+                    f"VECTOR_STORE_BACKEND={os.environ['VECTOR_STORE_BACKEND']} overrides backend"
+                )
 
         return {
             "status": "success",
             "message": "Configuration updated successfully",
             "note": "New settings will apply to future operations. Ongoing operations continue with previous settings.",
+            "mode": "test/dev" if _should_apply_env_overrides() else "production",
+            "env_overrides": env_override_note if env_override_note else None,
             "warnings": warnings,
             "setup_warnings": setup_warnings,
-            "config": validated_config.model_dump(),
+            "config": _current_config.model_dump(),
         }
 
     except HTTPException:

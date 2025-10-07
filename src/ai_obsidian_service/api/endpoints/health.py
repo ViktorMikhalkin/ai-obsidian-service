@@ -4,8 +4,9 @@ from datetime import datetime
 
 from fastapi import APIRouter
 
-from ai_obsidian_service.api.dependencies import _service, log_structured
+from ai_obsidian_service.api.dependencies import get_service
 from ai_obsidian_service.api.endpoints.config import get_current_config
+from ai_obsidian_service.api.logging import log_structured
 from ai_obsidian_service.api.schemas import InfoSchema
 
 router = APIRouter()
@@ -34,13 +35,13 @@ def api_info() -> InfoSchema:
     index_dir = config.indexing.index_dir
 
     try:
-        if hasattr(_service.index, "embedder") and hasattr(
-            _service.index.embedder, "model_name"
+        if hasattr(get_service().index, "embedder") and hasattr(
+            get_service().index.embedder, "model_name"
         ):
-            model = _service.index.embedder.model_name
+            model = get_service().index.embedder.model_name
 
-        if hasattr(_service.index, "store"):
-            store = _service.index.store
+        if hasattr(get_service().index, "store"):
+            store = get_service().index.store
             if hasattr(store, "dim"):
                 dim = store.dim
             if hasattr(store, "count"):

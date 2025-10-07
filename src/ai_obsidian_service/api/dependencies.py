@@ -7,7 +7,6 @@ import logging
 import sys
 import uuid
 from contextlib import asynccontextmanager
-from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +15,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from ai_obsidian_service.adapters.llm.ollama_client import OllamaClient
 from ai_obsidian_service.api.endpoints.config import get_current_config
+from ai_obsidian_service.api.logging import log_structured, request_id_ctx
 from ai_obsidian_service.config.container import build_search_service
 from ai_obsidian_service.index.faiss_store import FaissVectorStore
 
@@ -35,11 +35,6 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-logger = logging.getLogger(__name__)
-
-# Request tracking
-request_id_ctx: ContextVar[str] = ContextVar("request_id", default="")
-
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
     """Adds request ID to all requests for log correlation."""
@@ -52,25 +47,25 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def log_structured(level: str, message: str, **kwargs):
-    """Structured logging helper that adds request_id automatically."""
-    request_id = request_id_ctx.get("")
-    fields = {"request_id": request_id, **kwargs}
-    field_str = " ".join(f"{k}={v}" for k, v in fields.items() if v is not None)
-    log_msg = f"{message} | {field_str}" if field_str else message
-    log_func = getattr(logger, level.lower(), logger.info)
-    log_func(log_msg)
+# Service initialization - lazy loaded to avoid import-time crashes in tests
+_service = None
 
 
-# Service initialization - uses config
 def _init_service():
     """Initialize service using configuration."""
+    global _service
+    if _service is not None:
+        return _service
+
     config = get_current_config()
     index_dir = config.indexing.index_dir if config.indexing.index_dir else None
-    return build_search_service(index_dir=index_dir)
+    _service = build_search_service(index_dir=index_dir)
+    return _service
 
 
-_service = _init_service()
+def get_service():
+    """Get the service instance, initializing if needed."""
+    return _init_service()
 
 
 def _make_ollama() -> OllamaClient | None:
@@ -100,8 +95,7 @@ _ocr_lock = asyncio.Lock()
 def resolve_meta(chunk_id: str) -> dict[str, Any]:
     """Resolve chunk metadata."""
     try:
-        result = _service.resolve_meta(chunk_id=chunk_id)
-        # Ensure we return a dict, not Any
+        result = get_service().resolve_meta(chunk_id=chunk_id)  # Changed
         if isinstance(result, dict):
             return result
         return {}
@@ -117,11 +111,11 @@ async def lifespan(app):
     # Start background task to load index if needed
     load_task = None
     if (
-        hasattr(_service.index, "_pending_load_path")
-        and _service.index._pending_load_path
+        hasattr(get_service().index, "_pending_load_path")
+        and get_service().index._pending_load_path
     ):
-        index_dir = _service.index._pending_load_path
-        model_name = getattr(_service.index, "_pending_load_model", None)
+        index_dir = get_service().index._pending_load_path
+        model_name = getattr(get_service().index, "_pending_load_model", None)
 
         async def load_index_background():
             """Load FAISS index in background without blocking startup."""
@@ -134,19 +128,19 @@ async def lifespan(app):
                 )
 
                 # Replace the empty store with loaded one
-                _service.index.store = loaded_store
+                get_service().index.store = loaded_store
 
                 # Load registry if using EnhancedEmbeddingIndex
-                if hasattr(_service.index, "load_registry"):
+                if hasattr(get_service().index, "load_registry"):
                     registry_path = Path(index_dir) / "doc_registry.json"
                     if registry_path.exists():
                         await asyncio.to_thread(
-                            _service.index.load_registry, registry_path
+                            get_service().index.load_registry, registry_path
                         )
                         log_structured(
                             "info",
                             "registry_loaded",
-                            documents=len(_service.index._doc_registry),
+                            documents=len(get_service().index._doc_registry),
                         )
 
                 log_structured(
@@ -189,23 +183,23 @@ async def lifespan(app):
             except Exception as e:
                 log_structured("error", "shutdown_error", component=name, error=str(e))
 
-        if hasattr(_service, "shutdown"):
+        if hasattr(get_service(), "shutdown"):
             await safe_shutdown(
-                asyncio.to_thread(_service.shutdown), "Service", timeout=2.0
+                asyncio.to_thread(get_service().shutdown), "Service", timeout=2.0
             )
 
-        if hasattr(_service, "index") and hasattr(_service.index, "close"):
+        if hasattr(get_service(), "index") and hasattr(get_service().index, "close"):
             await safe_shutdown(
-                asyncio.to_thread(_service.index.close), "Index", timeout=2.0
+                asyncio.to_thread(get_service().index.close), "Index", timeout=2.0
             )
 
         if (
-            hasattr(_service, "index")
-            and hasattr(_service.index, "store")
-            and hasattr(_service.index.store, "close")
+            hasattr(get_service(), "index")
+            and hasattr(get_service().index, "store")
+            and hasattr(get_service().index.store, "close")
         ):
             await safe_shutdown(
-                asyncio.to_thread(_service.index.store.close), "Store", timeout=2.0
+                asyncio.to_thread(get_service().index.store.close), "Store", timeout=2.0
             )
 
         log_structured("info", "service_shutdown_complete")

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    pass
 
 from ai_obsidian_service.domain.models import Document
 from ai_obsidian_service.utils.ids import doc_hash, source_id
@@ -27,39 +31,51 @@ class PdfParser:
     exts: tuple[str, ...] = (".pdf",)
 
     def __init__(self):
-        """Detect available PDF library at initialization."""
-        self._backend = self._detect_backend()
+        """Initialize parser - backend detection is deferred until first use."""
+        self._backend: str | None = None
 
     def _detect_backend(self) -> str:
-        """Check which PDF library is available."""
+        """Check which PDF library is available - only when actually parsing."""
+        if self._backend is not None:
+            return self._backend
+
         try:
             import fitz  # noqa: F401
 
-            return "pymupdf"
+            self._backend = "pymupdf"
+            return self._backend
         except ImportError:
-            try:
-                import pypdf  # noqa: F401
+            pass
 
-                return "pypdf"
-            except ImportError:
-                return "none"
+        try:
+            import pypdf  # noqa: F401
+
+            self._backend = "pypdf"
+            return self._backend
+        except ImportError:
+            pass
+
+        self._backend = "none"
+        return self._backend
 
     def can_parse(self, path: str) -> bool:
-        if self._backend == "none":
-            return False
+        # Only detect backend if we actually need to parse
         return Path(path).suffix.lower() in self.exts
 
     def parse(self, vault_root: str, absolute_path: str) -> Document | None:
-        if self._backend == "pymupdf":
+        # Detect backend lazily on first parse call
+        backend = self._detect_backend()
+
+        if backend == "pymupdf":
             return self._parse_pymupdf(vault_root, absolute_path)
-        elif self._backend == "pypdf":
+        elif backend == "pypdf":
             return self._parse_pypdf(vault_root, absolute_path)
         return None
 
     def _parse_pymupdf(self, vault_root: str, absolute_path: str) -> Document | None:
         """Fast parsing with PyMuPDF with OCR detection."""
         try:
-            import fitz
+            import fitz  # Lazy import - only when actually parsing
         except ImportError:
             return None
 
@@ -134,7 +150,7 @@ class PdfParser:
     def _parse_pypdf(self, vault_root: str, absolute_path: str) -> Document | None:
         """Fallback parsing with pypdf (original implementation)."""
         try:
-            from pypdf import PdfReader
+            from pypdf import PdfReader  # Lazy import - only when using pypdf fallback
         except ImportError:
             return None
 
