@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/ViktorMikhalkin/ai-obsidian-service/compare/v0.1.0...v0.1.1) (2025-10-08)
+
+
+### Bug Fixes
+
+* **ci:** wait for CI checks before creating release PR ([#65](https://github.com/ViktorMikhalkin/ai-obsidian-service/issues/65)) ([436228a](https://github.com/ViktorMikhalkin/ai-obsidian-service/commit/436228a276637b87f675308c211eabad5224b262))
+
 ## 0.1.0 (2025-09-19)
 
 
