@@ -3,7 +3,15 @@
 # Updated for stable dependencies and environment validation
 # ==========================================
 
-CONDA       ?= conda
+# Detect conda/mamba - prefer micromamba if available, then mamba, then conda
+CONDA_EXE := $(shell which micromamba 2>/dev/null || which mamba 2>/dev/null || which conda 2>/dev/null)
+ifeq ($(CONDA_EXE),)
+    $(error No conda, mamba, or micromamba found in PATH)
+endif
+
+# Extract just the command name (micromamba, mamba, or conda)
+CONDA := $(notdir $(CONDA_EXE))
+
 CPU_ENV     := aiobs-cpu
 GPU_ENV     := aiobs-gpu
 PYVER       := 3.11
@@ -38,6 +46,8 @@ UVICORN_GRACEFUL := 30
 .PHONY: help
 help:
 	@echo "AI Obsidian Service - Development Commands"
+	@echo ""
+	@echo "Detected: $(CONDA) at $(CONDA_EXE)"
 	@echo ""
 	@echo "Environment Setup:"
 	@echo "    env-create-cpu     Create CPU environment from environment.yml"
@@ -80,7 +90,7 @@ env-create-cpu:
 	$(PIP_CPU) install -e ".[dev]"
 	@echo "Validating environment..."
 	@$(MAKE) env-validate-cpu
-	@echo "CPU environment ready! Activate with: conda activate $(CPU_ENV)"
+	@echo "CPU environment ready! Activate with: $(CONDA) activate $(CPU_ENV)"
 
 .PHONY: env-create-gpu
 env-create-gpu:
@@ -91,7 +101,7 @@ env-create-gpu:
 	$(PIP_GPU) install -e ".[dev]"
 	@echo "Validating environment..."
 	@$(MAKE) env-validate-gpu
-	@echo "GPU environment ready! Activate with: conda activate $(GPU_ENV)"
+	@echo "GPU environment ready! Activate with: $(CONDA) activate $(GPU_ENV)"
 
 .PHONY: env-validate-cpu
 env-validate-cpu:
@@ -113,7 +123,7 @@ env-validate-gpu:
 env-remove-cpu:
 	@echo "Removing CPU environment..."
 	@if [ "$$CONDA_DEFAULT_ENV" = "$(CPU_ENV)" ]; then \
-		echo "Cannot remove active environment. Please run 'conda deactivate' first."; \
+		echo "Cannot remove active environment. Please run '$(CONDA) deactivate' first."; \
 		exit 1; \
 	fi
 	-$(CONDA) env remove -n $(CPU_ENV) -y
@@ -122,7 +132,7 @@ env-remove-cpu:
 env-remove-gpu:
 	@echo "Removing GPU environment..."
 	@if [ "$$CONDA_DEFAULT_ENV" = "$(GPU_ENV)" ]; then \
-		echo "Cannot remove active environment. Please run 'conda deactivate' first."; \
+		echo "Cannot remove active environment. Please run '$(CONDA) deactivate' first."; \
 		exit 1; \
 	fi
 	-$(CONDA) env remove -n $(GPU_ENV) -y
@@ -193,7 +203,7 @@ test-all:
 serve-cpu:
 	@if [ "$$CONDA_DEFAULT_ENV" != "$(CPU_ENV)" ]; then \
 		echo "Error: Please activate the CPU environment first:"; \
-		echo "  conda activate $(CPU_ENV)"; \
+		echo "  $(CONDA) activate $(CPU_ENV)"; \
 		exit 1; \
 	fi
 	@echo "Starting FastAPI development server (CPU)..."
@@ -205,7 +215,7 @@ serve-cpu:
 serve-gpu:
 	@if [ "$$CONDA_DEFAULT_ENV" != "$(GPU_ENV)" ]; then \
 		echo "Error: Please activate the GPU environment first:"; \
-		echo "  conda activate $(GPU_ENV)"; \
+		echo "  $(CONDA) activate $(GPU_ENV)"; \
 		exit 1; \
 	fi
 	@echo "Starting FastAPI development server (GPU)..."
