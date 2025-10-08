@@ -61,7 +61,7 @@ help:
 	@echo "    test-all           Full test suite"
 	@echo ""
 	@echo "Development:"
-	@echo "    serve              Run FastAPI server (CPU)"
+	@echo "    serve-cpu          Run FastAPI server (CPU)"
 	@echo "    serve-gpu          Run FastAPI server (GPU)"
 	@echo "    verify-cpu         Comprehensive CPU diagnostics"
 	@echo "    verify-gpu         Comprehensive GPU diagnostics"

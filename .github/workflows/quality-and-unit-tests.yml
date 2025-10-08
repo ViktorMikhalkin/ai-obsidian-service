@@ -1,0 +1,50 @@
+name: Quality & Unit Tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-and-tests:
+    name: Lint, Type Check & Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Conda environment
+        uses: mamba-org/setup-micromamba@v1
+        with:
+          environment-file: environment.yml
+          cache-environment: true
+          cache-downloads: true
+
+      - name: Install project in editable mode
+        run: pip install -e "."
+
+      - name: Verify environment
+        run: |
+          python --version
+          python -c "import numpy; print('numpy:', numpy.__version__)"
+          python -c "import fastapi; print('fastapi:', fastapi.__version__)"
+
+      - name: Lint
+        run: make lint
+
+      - name: Type check
+        run: make type
+
+      - name: Unit tests
+        run: make test
