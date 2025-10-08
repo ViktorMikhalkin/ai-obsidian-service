@@ -18,7 +18,7 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 try:
     from .__version__ import __version__
 except Exception:  # pragma: no cover
-    __version__ = "0.1.0"  # fallback if version file is missing during build
+    __version__ = "0.1.1"  # fallback if version file is missing during build
 
 # Note: Removed problematic re-exports until the indexer module is properly implemented
 # TODO: Add back build_index and get_index_status when they're implemented in the indexer module
