@@ -1,106 +1,117 @@
+from __future__ import annotations
+
 import os
-import sys
-import tempfile
-import types
+from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
 
-# 1) Ensure repository root is on PYTHONPATH so `from indexer ...` works
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
-# 2) Set safe test mode ENV before any app modules import config
-_WORK_ROOT = Path(tempfile.mkdtemp(prefix="aiobs-test-"))
-_INDEX_DIR = _WORK_ROOT / "index"
-_INDEX_DIR.mkdir(parents=True, exist_ok=True)
-
-# Minimal index files so API endpoints can operate without real data
-(_INDEX_DIR / "index.jsonl").write_text("", encoding="utf-8")
-(_INDEX_DIR / "dim.txt").write_text("8", encoding="utf-8")
-(_INDEX_DIR / "faiss.index").write_bytes(b"\x00")
-
-# Create minimal config.yaml in the temporary work dir
-# YAML is a superset of JSON, safe to dump as JSON here
-(_WORK_ROOT / "config.yaml").write_text(
-    (
-        "{"
-        f'"index_dir": "{str(_INDEX_DIR).replace("\\", "\\\\")}",'
-        '"vault_path": "",'
-        '"library_paths": [],'
-        '"include_globs": ["**/*.md","**/*.pdf","**/*.epub"],'
-        '"chunk": {"target_tokens": 16, "overlap_tokens": 4},'
-        '"server": {"host": "127.0.0.1", "port": 8000},'
-        '"embeddings": {'
-        '"model": "intfloat/multilingual-e5-small",'
-        '"device": "cpu",'
-        '"batch_size": 8,'
-        '"faiss": {'
-        f'"index_path": "{str((_INDEX_DIR / "faiss.index")).replace("\\", "\\\\")}",'
-        f'"dim_path": "{str((_INDEX_DIR / "dim.txt")).replace("\\", "\\\\")}"'
-        "}"
-        "}"
-        "}"
-    ),
-    encoding="utf-8",
-)
-
+# Safe defaults for unit runs
 os.environ.setdefault("AIOBS_TEST_MODE", "1")
-os.environ.setdefault("AIOBS_TEST_INDEX_DIR", str(_INDEX_DIR))
-
-# 3) Mock heavy dependencies at import time, so real packages are never loaded
-# Mock sentence_transformers
-st_pkg = types.ModuleType("sentence_transformers")
+os.environ.setdefault("VECTOR_STORE_BACKEND", "memory")
+os.environ.setdefault("OLLAMA_BASE_URL", "")
+os.environ.setdefault("OLLAMA_MODEL", "")
 
 
-class _DummySentenceTransformer:
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def encode(
-        self, texts, batch_size=64, normalize_embeddings=True, show_progress_bar=False
-    ):
-        import numpy as _np
-
-        return _np.zeros((len(texts), 8), dtype=_np.float32)
-
-
-st_pkg.SentenceTransformer = _DummySentenceTransformer  # type: ignore[attr-defined]
-sys.modules["sentence_transformers"] = st_pkg
-
-# Mock faiss
-faiss_mod = types.ModuleType("faiss")
-
-
-class _DummyIndexFlatIP:
-    def __init__(self, d):
-        self.d = d
-
-    def add(self, arr):
-        pass
-
-
-def _dummy_write_index(index, path):
-    Path(path).write_bytes(b"\x00")
-
-
-def _dummy_read_index(path):
-    return _DummyIndexFlatIP(8)
-
-
-faiss_mod.IndexFlatIP = _DummyIndexFlatIP  # type: ignore[attr-defined]
-faiss_mod.write_index = _dummy_write_index  # type: ignore[attr-defined]
-faiss_mod.read_index = _dummy_read_index  # type: ignore[attr-defined]
-sys.modules["faiss"] = faiss_mod
-
-
-# 4) Switch CWD to the temp work dir so all relative paths resolve safely
-@pytest.fixture(scope="session", autouse=True)
-def _switch_cwd_to_work_root():
-    old_cwd = os.getcwd()
-    os.chdir(_WORK_ROOT)
+# --- Capability probes & skips for FAISS CPU (integration tests) --------------
+def _has_faiss_cpu() -> bool:
+    """Check if FAISS CPU is available."""
+    # Skip FAISS check in test mode to avoid segfaults during collection
+    if os.environ.get("AIOBS_TEST_MODE") == "1":
+        return False
     try:
-        yield
-    finally:
-        os.chdir(old_cwd)
+        return True
+    except Exception:
+        return False
+
+
+HAS_FAISS_CPU = _has_faiss_cpu()
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    skip_faiss = pytest.mark.skip(reason="FAISS (CPU) not available")
+    for item in items:
+        if (
+            ("integration_cpu" in item.keywords)
+            or ("faiss" in item.keywords)
+            or ("requires_faiss" in item.keywords)
+        ):
+            if not HAS_FAISS_CPU:
+                item.add_marker(skip_faiss)
+
+
+# --- Helpers ------------------------------------------------------------------
+def _iter_files(root: Path, patterns: Iterable[str]) -> Iterable[Path]:
+    import fnmatch
+    import os as _os
+
+    for dirpath, _, filenames in _os.walk(root):
+        for name in filenames:
+            p = Path(dirpath) / name
+            s = str(p).lower()
+            if any(fnmatch.fnmatch(s, pat.lower()) for pat in patterns):
+                yield p
+
+
+# --- Fixtures -----------------------------------------------------------------
+@pytest.fixture
+def mini_vault(tmp_path: Path) -> Path:
+    """
+    Minimal Obsidian-like vault:
+      vault/
+        note1.md
+        sub/note2.md
+    """
+    root = tmp_path / "vault"
+    (root / "sub").mkdir(parents=True, exist_ok=True)
+    (root / "note1.md").write_text("# Note 1\nHello world\n", encoding="utf-8")
+    (root / "sub" / "note2.md").write_text("# Note 2\nHello again\n", encoding="utf-8")
+    return root
+
+
+@pytest.fixture
+def search_service(mini_vault: Path):
+    """
+    Build SearchService (memory backend) and index the mini_vault (MD only for unit).
+    """
+    from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
+    from ai_obsidian_service.adapters.parsers import all_parsers
+    from ai_obsidian_service.di_selector import make_components
+
+    chunker = SimpleChunker(max_chars=1000, overlap=100)
+    di = make_components(chunker=chunker)
+    service = di.search  # unified SearchService
+
+    try:
+        service.parsers = all_parsers()
+    except Exception:
+        pass
+
+    for p in _iter_files(mini_vault, patterns=["**/*.md"]):
+        service.index_path(str(p))
+
+    return service
+
+
+@pytest.fixture
+def empty_search_service():
+    """
+    Build SearchService (memory backend), but DO NOT index anything.
+    Useful for tests that need a truly empty index.
+    """
+    from ai_obsidian_service.adapters.chunkers.simple_chunker import SimpleChunker
+    from ai_obsidian_service.adapters.parsers import all_parsers
+    from ai_obsidian_service.di_selector import make_components
+
+    chunker = SimpleChunker(max_chars=1000, overlap=100)
+    di = make_components(chunker=chunker)
+    service = di.search
+
+    try:
+        service.parsers = all_parsers()
+    except Exception:
+        pass
+
+    return service

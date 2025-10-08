@@ -2,17 +2,17 @@ name: PR Title Check
 
 on:
   pull_request_target:
-    types: [opened, edited, synchronize]
+    types: [opened, edited, synchronize, reopened]
 
 permissions:
-  contents: read
   pull-requests: read
 
 jobs:
-  check-pr-title:
+  validate-title:
+    name: Conventional Commits
     runs-on: ubuntu-latest
     steps:
-      - name: Validate PR title (Conventional Commits)
+      - name: Validate PR title
         uses: amannn/action-semantic-pull-request@v5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -20,27 +20,12 @@ jobs:
           types: |
             feat
             fix
+            chore
             docs
-            style
             refactor
             test
-            chore
-            ci
-            build
             perf
-          scopes: |
-            index
-            parser
-            faiss
-            rag
-            repo
-            api
-            cli
+            build
             ci
-            packaging
-            docs
-            core
-            main
-          requireScope: true
-          subjectPattern: '^[^\s].+$'
-          subjectPatternError: 'Subject must not be empty and must not start with whitespace.'
+          requireScope: false
+          subjectPattern: ".+"

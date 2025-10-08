@@ -1,0 +1,46 @@
+name: Integration Tests (FAISS CPU)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - ".github/workflows/integration-tests-cpu.yml"
+      - "environment.yml"
+      - "pyproject.toml"
+
+permissions:
+  contents: read
+
+jobs:
+  integration-tests:
+    name: FAISS CPU + Embeddings
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Conda environment
+        uses: mamba-org/setup-micromamba@v1
+        with:
+          environment-file: environment.yml
+          cache-environment: true
+          cache-downloads: true
+
+      - name: Install project in editable mode
+        run: pip install -e "."
+
+      - name: Validate environment
+        run: make env-validate-cpu
+
+      - name: Type check
+        run: make type
+
+      - name: Integration tests
+        run: make test-faiss-cpu

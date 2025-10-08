@@ -5,7 +5,6 @@ AI Obsidian Service - public package API.
 Minimal initialization only:
 - package version (__version__)
 - quiet base logger
-- lightweight re-exports of common operations (if available)
 """
 
 from __future__ import annotations
@@ -21,11 +20,7 @@ try:
 except Exception:  # pragma: no cover
     __version__ = "0.1.0"  # fallback if version file is missing during build
 
-# Lightweight re-exports from subpackages. Import only symbols that are cheap and safe.
-try:
-    from .indexer import build_index, get_index_status
-except Exception:
-    # Keep the package importable even if optional deps are not installed.
-    pass
+# Note: Removed problematic re-exports until the indexer module is properly implemented
+# TODO: Add back build_index and get_index_status when they're implemented in the indexer module
 
-__all__ = ["__version__", "build_index", "get_index_status"]
+__all__ = ["__version__"]
