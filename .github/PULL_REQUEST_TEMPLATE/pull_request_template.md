@@ -32,4 +32,3 @@
 - [ ] Commit messages follow Conventional Commits (`type(scope): message`)
 - [ ] Tests are passing (`pytest`)
 - [ ] Documentation updated if needed
-- [ ] OpenAPI schema regenerated (`python scripts/export_openapi.py`)
