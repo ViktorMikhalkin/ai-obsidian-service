@@ -66,62 +66,35 @@ pre-commit run --all-files  # Test
 
 ## CI/CD Pipeline
 
-### Workflow Architecture
+### Workflows
 
-Our CI uses a **layered testing strategy** for fast feedback and comprehensive coverage:
+| Workflow | Trigger | Duration | Purpose |
+|----------|---------|----------|---------|
+| **PR Title Check** | PR events | 10s | Enforce `type(scope): subject` |
+| **Quality & Unit Tests** | PR + main push | ~7 min | Lint, type, unit tests |
+| **Integration Tests** | main push | ~10 min | Real FAISS + embeddings |
+| **E2E Tests** | Manual only | ~15 min | Full system |
+| **Release** | main push | 30s | Creates Release PR |
+| **Docker Publish** | Release published | ~15 min | CPU + GPU images |
+
+### Release Flow
 
 ```
-┌─────────────────────────────────────────────────┐
-│ ci.yml - FAST FEEDBACK (every PR/push)         │
-│ • Unit tests only                               │
-│ • Memory backend, no external deps              │
-│ • Runs: make lint, make type, make test         │
-│ • Duration: ~2-3 minutes                        │
-└─────────────────────────────────────────────────┘
-                     ↓
-┌─────────────────────────────────────────────────┐
-│ faiss-cpu.yml - INTEGRATION (main + manual)     │
-│ • Real FAISS, embeddings, ML stack              │
-│ • Runs: make test-faiss-cpu                     │
-│ • Duration: ~5-10 minutes                       │
-└─────────────────────────────────────────────────┘
-                     ↓
-┌─────────────────────────────────────────────────┐
-│ e2e.yml - FULL SYSTEM (manual only)             │
-│ • All parsers (PDF, EPUB, etc.)                 │
-│ • Runs: make test-e2e                           │
-│ • Duration: ~10-20 minutes                      │
-└─────────────────────────────────────────────────┘
+Feature PR → tests pass → merge main
+    ↓
+Quality & Integration both pass (~10 min)
+    ↓
+Release PR created (if feat/fix commits)
+    ↓
+Merge Release PR → Tag + Release + Docker images
 ```
-
-### CI Workflows
-
-| Workflow | Trigger | Purpose | Makefile Equivalent |
-|----------|---------|---------|---------------------|
-| **ci.yml** | Every push/PR | Fast quality gate | `make check` |
-| **faiss-cpu.yml** | Main branch + manual | Integration testing | `make test-faiss-cpu` |
-| **e2e.yml** | Manual only | System testing | `make test-e2e` |
-| **pr-title-check.yml** | PR events | Enforce conventions | N/A |
-| **release-please.yml** | Main push | Auto releases | N/A |
 
 ### Local CI Simulation
 
-**Replicate CI locally before pushing:**
-
 ```bash
-# Run what quality-and-unit-tests.yml runs
-make lint
-make type
-make test
-
-# Or all at once
-make check
-
-# Run integration tests (like integration-tests-cpu.yml)
-make test-faiss-cpu
-
-# Run e2e tests (like e2e-tests.yml)
-make test-e2e
+make check          # What PR checks run
+make test-faiss-cpu # What integration runs
+make test-e2e       # What e2e runs
 ```
 
 ### Makefile vs CI Decision Matrix
@@ -144,7 +117,7 @@ make test-e2e
 **Integration tests:**
 ```bash
 # Via GitHub UI
-# Actions tab → "CI (integration-cpu, py311)" → Run workflow
+# Actions tab → "Integration Tests (FAISS CPU)" → Run workflow
 
 # Or via gh CLI
 gh workflow run integration-tests-cpu.yml
@@ -203,10 +176,10 @@ We use **pytest markers** to categorize tests:
 
 | Marker | What it tests | Run locally | Run in CI |
 |--------|---------------|-------------|-----------|
-| `unit` (default) | Fast tests, mocks/fakes | `make test` | Always (ci.yml) |
-| `integration_cpu` | Real FAISS-CPU + embeddings | `make test-faiss-cpu` | On main (faiss-cpu.yml) |
+| `unit` (default) | Fast tests, mocks/fakes | `make test` | Always |
+| `integration_cpu` | Real FAISS-CPU + embeddings | `make test-faiss-cpu` | On main |
 | `integration_gpu` | Real FAISS-GPU + CUDA | `make test-faiss-gpu` | Manual only |
-| `e2e` | Full system, all parsers | `make test-e2e` | Manual (e2e.yml) |
+| `e2e` | Full system, all parsers | `make test-e2e` | Manual |
 | `faiss` | Any FAISS-dependent test | `make test-faiss-cpu` | On main |
 
 ### Run Tests
@@ -258,24 +231,20 @@ def test_embedder_batch():
 
 ## Commit Convention
 
-Use [Conventional Commits](https://www.conventionalcommits.org/):
+**Format:** `type(scope): subject` - **scope required!**
 
-```
-<type>(<scope>): <subject>
-```
-
-**Types:** `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `ci`, `build`
-
-**Scopes:** `api`, `cli`, `index`, `parser`, `faiss`, `rag`, `deps`, `docs`, `tests`, `ci`, `repo`
+**Types:** `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `chore`, `ci`, `build`
 
 **Examples:**
 ```bash
-feat(api): add SSE streaming for index rebuild
-fix(parser): handle empty PDF documents
-perf(index): implement batch embedding
-docs(readme): update API examples
-ci(workflows): migrate to conda-based CI
+feat(api): add SSE streaming
+fix(parser): handle empty PDFs
+chore(deps): update faiss-gpu
+ci(workflows): improve release automation
 ```
+
+❌ `feat: add feature` - missing scope
+✅ `feat(api): add feature` - correct
 
 **Breaking changes:**
 ```bash
@@ -296,13 +265,13 @@ BREAKING CHANGE: /search now returns SearchResult object
 ### Before Creating PR
 
 ```bash
-make check  # Must pass (same as quality-and-unit-tests.yml)
+make check  # Must pass
 ```
 
 ### PR Requirements
 
-- ✅ Title follows Conventional Commits (checked by pr-title-check.yml)
-- ✅ CI passes (ci.yml must be green)
+- ✅ Title follows `type(scope): subject` format
+- ✅ CI passes (Quality & Unit Tests)
 - ✅ Description includes:
     - What changed and why
     - Link to related issues
@@ -313,16 +282,16 @@ make check  # Must pass (same as quality-and-unit-tests.yml)
 ### Review Process
 
 1. CI runs automatically on PR
-2. ci.yml must pass (unit tests + quality checks)
+2. Quality & Unit Tests must pass
 3. At least one approval required
 4. Address review comments
 5. Merge to main
-6. Integration tests run automatically on main (faiss-cpu.yml)
+6. Integration tests run automatically on main
 7. Release Please creates release PR if needed
 
 ### CI Failures
 
-**If ci.yml fails:**
+**If Quality & Unit Tests fail:**
 ```bash
 # Reproduce locally
 make check
@@ -334,13 +303,13 @@ make type   # Fix type errors
 make test   # Fix failing tests
 ```
 
-**If faiss-cpu.yml fails (after merge to main):**
+**If Integration Tests fail (after merge to main):**
 ```bash
 # Reproduce locally
 make test-faiss-cpu
 
 # Or trigger manually to test fix
-# GitHub → Actions → "CI (integration-cpu, py311)" → Run workflow
+# GitHub → Actions → "Integration Tests (FAISS CPU)" → Run workflow
 ```
 
 ---
@@ -456,13 +425,13 @@ make env-create-gpu
 1. **Check GitHub Actions logs** for error details
 2. **Reproduce locally:**
    ```bash
-   # For quality-and-unit-tests.yml failures
+   # For Quality & Unit Tests failures
    make check
 
-   # For integration-tests-cpu.yml failures
+   # For Integration Tests failures
    make test-faiss-cpu
 
-   # For e2e-tests.yml failures
+   # For E2E Tests failures
    make test-e2e
    ```
 3. **Verify environment:**
@@ -480,16 +449,21 @@ make env-create-gpu
 
 ## Release Process
 
-### Automated Releases
+**Automated via Release Please:**
 
-We use [Release Please](https://github.com/googleapis/release-please) for automated releases:
+1. Commit with `feat:` or `fix:` to main
+2. Release PR created automatically (version + CHANGELOG)
+3. Review and merge Release PR
+4. Git tag + GitHub Release created
+5. Docker images published to ghcr.io
 
-1. **Commit with conventional commits** to main
-2. **Release Please bot** analyzes commits
-3. **Release PR is created** with version bump and changelog
-4. **Review and merge** the release PR
-5. **GitHub release is created** automatically
-6. **Package is published** (if configured)
+**Pull images:**
+```bash
+docker pull ghcr.io/USERNAME/ai-obsidian-service:latest-cpu
+docker pull ghcr.io/USERNAME/ai-obsidian-service:latest-gpu
+```
+
+**Tags:** `VERSION-cpu`, `VERSION-gpu`, `latest-cpu`, `latest-gpu`
 
 ### Manual Release Testing
 

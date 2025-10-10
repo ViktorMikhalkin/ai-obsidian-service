@@ -1,4 +1,4 @@
-# AI ↔ Obsidian — Python Service
+# AI ↔ Obsidian – Python Service
 
 FastAPI-based local indexing and RAG service for Obsidian integration with real-time SSE progress streaming.
 
@@ -58,6 +58,26 @@ Load: `set -a && source .env && set +a`
 
 ---
 
+## Docker
+
+**Pull from GitHub Container Registry:**
+```bash
+# CPU (amd64 + arm64)
+docker pull ghcr.io/USERNAME/ai-obsidian-service:latest-cpu
+
+# GPU (amd64)
+docker pull ghcr.io/USERNAME/ai-obsidian-service:latest-gpu
+```
+
+**Run:**
+```bash
+docker run -p 8000:8000 \
+  -v /path/to/vault:/vault \
+  ghcr.io/USERNAME/ai-obsidian-service:latest-cpu
+```
+
+---
+
 ## Usage
 
 ### Start Server
@@ -111,7 +131,7 @@ conda activate aiobs-gpu
 make check  # lint + type + test
 ```
 
-**Commit convention:** [Conventional Commits](https://www.conventionalcommits.org/)
+**Commit convention:** `type(scope): subject` - scope required!
 ```bash
 feat(api): add SSE streaming
 fix(parser): handle empty PDFs

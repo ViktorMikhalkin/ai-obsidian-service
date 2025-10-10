@@ -1,0 +1,49 @@
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Python/build
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+*.dylib
+build/
+dist/
+*.egg-info/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+
+# Data / caches / models / indices
+data/
+datasets/
+.cache/
+.huggingface/
+.checkpoints/
+wandb/
+mlruns/
+models/
+weights/
+artifacts/
+logs/
+.tensorboard/
+
+# Local config and secrets
+*.env
+.env.*
+config/*.local.*
+config/local/
+config/dev/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

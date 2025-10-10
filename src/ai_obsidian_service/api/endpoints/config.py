@@ -13,7 +13,18 @@ from ai_obsidian_service.api.logging import log_structured
 router = APIRouter()
 
 # Default config file location
-CONFIG_FILE = Path("config/service_config.json")
+CONFIG_FILE = Path(os.environ.get("AI_OBS_CONFIG_PATH", "/config/service_config.json"))
+
+def _detect_default_device() -> str:
+    """Pick sensible default per image: 'cuda' if available, else 'cpu'."""
+    forced = os.environ.get("AIOBS_FORCE_DEVICE")
+    if forced in ("cpu", "cuda"):
+        return forced
+    try:
+        import torch  # type: ignore
+        return "cuda" if getattr(torch, "cuda", None) and torch.cuda.is_available() else "cpu"
+    except Exception:
+        return "cpu"
 
 
 class ChunkingConfig(BaseModel):
@@ -320,6 +331,16 @@ def get_current_config() -> ServiceConfig:
                 details="Using default configuration. Set config via POST /config",
             )
             config = ServiceConfig()
+            # Autodetect device to align defaults with image runtime
+            default_device = _detect_default_device()
+            config.embeddings.device = default_device
+            try:
+                # align FAISS search target with device if present
+                if hasattr(config, "indexing") and hasattr(config.indexing, "faiss"):
+                    config.indexing.faiss.search_on = "gpu" if default_device == "cuda" else "cpu"
+            except Exception:
+                pass
+
         else:
             try:
                 with open(CONFIG_FILE, encoding="utf-8") as f:
@@ -376,7 +397,7 @@ def require_config_field(field_path: str, value: Any, operation: str) -> None:
 
 
 def save_config(config: ServiceConfig) -> None:
-    """Persist configuration to disk."""
+    """Persist configuration to disk (ensure parent exists)."""
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     try:
