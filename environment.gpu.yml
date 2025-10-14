@@ -8,8 +8,8 @@ dependencies:
   - python=3.11  # Keeping 3.11 to match CPU env
 
   # GPU-accelerated ML libraries
-  - pytorch=2.5.1
-  - pytorch-cuda=12.4
+  - pytorch=2.8.0
+  - pytorch-cuda=12.9
   - cudnn
   - faiss-gpu=1.12.0
 

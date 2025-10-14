@@ -32,7 +32,6 @@ version = { attr = "ai_obsidian_service.__version__" }
 
 [tool.ccpolicy]
 types = ["feat", "fix", "docs", "style", "refactor", "test", "chore", "ci", "build", "perf"]
-scopes = ["index", "parser", "faiss", "rag", "repo", "api", "cli", "ci", "packaging", "docs", "core", "main"]
 enforce_scope = true
 allow_scopeless = false
 header_max_length = 72

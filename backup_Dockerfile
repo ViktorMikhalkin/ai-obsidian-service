@@ -1,0 +1,85 @@
+# syntax=docker/dockerfile:1.7
+#
+# Unified Dockerfile for CPU/GPU builds.
+# Option B: CPU uses Miniforge + explicit torch cpuonly; GPU uses PyTorch CUDA base.
+#
+# Build examples:
+#   CPU (multi-arch): docker buildx build --platform linux/amd64,linux/arm64 \
+#       --build-arg BASE_IMAGE=condaforge/miniforge3:24.7.1-0 --build-arg FLAVOR=cpu \
+#       -t ghcr.io/OWNER/REPO:latest-cpu --push .
+#   GPU (amd64): docker buildx build --platform linux/amd64 \
+#       --build-arg BASE_IMAGE=pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime --build-arg FLAVOR=gpu \
+#       -t ghcr.io/OWNER/REPO:latest-gpu --push .
+
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG FLAVOR=cpu  # cpu | gpu
+
+# Minimal system packages (tini = proper signal handling for uvicorn)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tini build-essential git ca-certificates wget && \
+    rm -rf /var/lib/apt/lists/*
+
+# (Optional) faster conda solver; strict channel priority for reproducibility
+RUN conda install -y conda-libmamba-solver && conda config --set solver libmamba
+RUN conda config --set channel_priority strict
+
+# ---- FIX: Install newer libstdc++ to prevent GLIBCXX errors ----
+RUN conda install -y -c conda-forge libstdcxx-ng && conda clean -y --all
+
+# ---- CPU/GPU specific base dependencies ----
+# CPU: pip-install CPU-only torch wheels; FAISS via conda
+# GPU: torch+cuda already in the base; only FAISS GPU via conda
+RUN if [ "$FLAVOR" = "gpu" ]; then \
+      conda install -y -c pytorch -c nvidia -c conda-forge faiss-gpu=1.12.0 && \
+      conda clean -y --all ; \
+    else \
+      pip install --upgrade pip && \
+      pip install --index-url https://download.pytorch.org/whl/cpu \
+        torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 && \
+      conda install -y -c pytorch -c conda-forge faiss-cpu=1.12.0 && \
+      conda clean -y --all ; \
+    fi
+
+# ---- Common dependencies ----
+# Install numpy, scipy, and scikit-learn together to ensure ABI compatibility
+RUN conda install -y -c conda-forge \
+      "numpy>=1.24,<1.27" "scipy>=1.10,<1.15" "pandas>=2" "scikit-learn>=1.3" \
+      "fastapi>=0.104" "uvicorn>=0.24" "pydantic>=2" && \
+    conda clean -y --all
+
+# Pin numpy/scipy to prevent pip from overriding conda versions
+RUN conda config --set pip_interop_enabled True
+
+RUN pip install -U pip wheel setuptools && \
+    pip install --no-build-isolation \
+      "sentence-transformers>=2.2,<3.0" \
+      "rank-bm25>=0.2.2" \
+      "pypdf>=4.0" \
+      "beautifulsoup4>=4.13" \
+      "ebooklib>=0.18" \
+      "python-frontmatter>=1.0.0" \
+      "respx>=0.20.0" \
+      "types-PyYAML" "types-requests" "types-tqdm" "types-aiofiles" \
+      "pymupdf>=1.24.0" "tiktoken>=0.5.0" "ocrmypdf>=16.11.0"
+
+# App
+WORKDIR /app
+COPY . /app
+
+# Important env
+ENV PYTHONPATH=/app/src
+# Persist config: mount a volume to /config in production
+ENV AI_OBS_CONFIG_PATH=/config/service_config.json
+
+# API port
+EXPOSE 8000
+
+# Healthcheck (enable if your app exposes /health)
+# HEALTHCHECK --interval=30s --timeout=5s --retries=5 CMD \
+#   wget -qO- http://127.0.0.1:8000/health || exit 1
+
+# Uvicorn entry (exec form)
+ENTRYPOINT ["/usr/bin/tini","--"]
+CMD ["python","-m","uvicorn","ai_obsidian_service.api.app:--host","0.0.0.0","--port","8000","--timeout-keep-alive","7200","--timeout-graceful-shutdown","30"]

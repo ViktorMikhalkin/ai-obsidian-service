@@ -17,6 +17,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          # Allowed commit types
           types: |
             feat
             fix
@@ -27,5 +28,16 @@ jobs:
             perf
             build
             ci
-          requireScope: false
-          subjectPattern: ".+"
+          # Require scope: must be a single non-empty word
+          requireScope: true
+          # Subject pattern: must start with lowercase
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: |
+            The subject "{subject}" should start with a lowercase letter.
+
+            Examples:
+              ✅ feat(api): add health check endpoint
+              ✅ fix(myfeature): resolve bug
+              ✅ chore(anything): update dependencies
+              ❌ feat: missing scope
+              ❌ feat(api): Add endpoint (uppercase subject)

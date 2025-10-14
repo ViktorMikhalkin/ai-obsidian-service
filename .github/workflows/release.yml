@@ -3,7 +3,7 @@ name: Release
 on:
   workflow_run:
     workflows:
-      - "PR Title Check"
+      # Trigger when either workflow completes
       - "Quality & Unit Tests"
       - "Integration Tests (FAISS CPU)"
     types:
@@ -14,13 +14,150 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: read  # Required to check workflow runs
 
 jobs:
   release-please:
     name: Create Release PR
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - uses: googleapis/release-please-action@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check all required workflows passed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -e  # Exit on error
+
+          echo "==========================================="
+          echo "Checking workflows for commit: $COMMIT_SHA"
+          echo "==========================================="
+          echo ""
+
+          # Required workflows that must pass
+          REQUIRED_WORKFLOWS=(
+            "Quality & Unit Tests"
+            "Integration Tests (FAISS CPU)"
+          )
+
+          # Retry configuration
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+
+          # Check each required workflow
+          for workflow_name in "${REQUIRED_WORKFLOWS[@]}"; do
+            echo "─────────────────────────────────────────"
+            echo "📋 Checking: $workflow_name"
+            echo "─────────────────────────────────────────"
+
+            workflow_found=false
+
+            # Retry loop to handle race conditions
+            for attempt in $(seq 1 $MAX_RETRIES); do
+              echo "  🔍 Attempt $attempt/$MAX_RETRIES: Querying workflow status..."
+
+              # Get the latest run for this workflow and commit
+              workflow_data=$(gh run list \
+                --workflow "$workflow_name" \
+                --commit "$COMMIT_SHA" \
+                --json conclusion,status,databaseId \
+                --jq 'if length > 0 then .[0] else null end' 2>&1)
+
+              gh_exit_code=$?
+
+              # Check if gh command failed
+              if [ $gh_exit_code -ne 0 ]; then
+                echo "  ⚠️  gh CLI error (exit code: $gh_exit_code)"
+                echo "  Output: $workflow_data"
+                if [ $attempt -lt $MAX_RETRIES ]; then
+                  echo "  ⏳ Retrying in ${RETRY_DELAY}s..."
+                  sleep $RETRY_DELAY
+                  continue
+                else
+                  echo "  ❌ Failed after $MAX_RETRIES attempts"
+                  exit 1
+                fi
+              fi
+
+              # Check if workflow was found
+              if [ "$workflow_data" = "null" ] || [ -z "$workflow_data" ]; then
+                echo "  ⏳ Workflow not found in run history yet"
+                if [ $attempt -lt $MAX_RETRIES ]; then
+                  echo "  🔄 Retrying in ${RETRY_DELAY}s..."
+                  sleep $RETRY_DELAY
+                  continue
+                else
+                  echo ""
+                  echo "  ❌ Workflow not found after $MAX_RETRIES attempts"
+                  echo "  💡 This workflow may not have started yet"
+                  echo "  Release PR creation skipped - waiting for workflow to start"
+                  exit 1
+                fi
+              fi
+
+              # Workflow found, break retry loop
+              workflow_found=true
+              break
+            done
+
+            if [ "$workflow_found" = false ]; then
+              echo "  ❌ Could not retrieve workflow status"
+              exit 1
+            fi
+
+            # Extract fields
+            run_id=$(echo "$workflow_data" | jq -r '.databaseId')
+            status=$(echo "$workflow_data" | jq -r '.status')
+            conclusion=$(echo "$workflow_data" | jq -r '.conclusion')
+
+            echo "  📊 Workflow run ID: $run_id"
+            echo "  📊 Status: $status"
+            echo "  📊 Conclusion: $conclusion"
+            echo ""
+
+            # Check if workflow is still in progress
+            if [ "$status" != "completed" ]; then
+              echo "  ⏳ Workflow is still running ($status)"
+              echo "  💡 Release PR will be created when this workflow completes"
+              echo "  Release PR creation skipped - waiting for workflow to complete"
+              exit 1
+            fi
+
+            # Check if workflow succeeded
+            if [ "$conclusion" != "success" ]; then
+              echo "  ❌ Workflow did not succeed (conclusion: $conclusion)"
+              echo "  💡 Possible reasons:"
+              echo "     - Test failures"
+              echo "     - Workflow cancelled"
+              echo "     - Infrastructure issues"
+              echo "  🔗 Check run details: https://github.com/${{ github.repository }}/actions/runs/$run_id"
+              echo ""
+              echo "  Release PR creation skipped - fix the failing workflow first"
+              exit 1
+            fi
+
+            echo "  ✅ Workflow passed successfully"
+            echo ""
+          done
+
+          echo "==========================================="
+          echo "🎉 All required workflows passed!"
+          echo "==========================================="
+          echo "Proceeding to create Release PR..."
+          echo ""
+
+      - name: Create Release PR
+        uses: googleapis/release-please-action@v4
+        id: release
         with:
-          release-type: python
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Configuration from release-please-config.json
+
+      - name: Release Info
+        if: steps.release.outputs.release_created
+        run: |
+          echo "🎉 Release created!"
+          echo "Tag: ${{ steps.release.outputs.tag_name }}"
+          echo "Version: ${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }}.${{ steps.release.outputs.patch }}"

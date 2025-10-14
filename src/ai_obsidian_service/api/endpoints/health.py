@@ -14,11 +14,24 @@ router = APIRouter()
 
 @router.get("/health")
 def health_check():
-    """Simple health check endpoint."""
+    """Simple health check with device info."""
+    device = "cpu"
+    cuda_available = False
+    try:
+        import torch
+
+        cuda_available = bool(
+            getattr(torch, "cuda", None) and torch.cuda.is_available()
+        )
+        device = "cuda" if cuda_available else "cpu"
+    except Exception:
+        pass
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "service": "ai-obsidian-service",
+        "device": device,
+        "cuda_available": cuda_available,
         "version": "5.0-lite",
     }
 
