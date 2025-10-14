@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 
 import numpy as np
 
@@ -49,5 +49,5 @@ class EmbeddingIndex:
             query=Query(text=text, top_k=int(top_k)),
             hits=store_result.hits,
             total_time_ms=round((time.perf_counter() - t0) * 1000.0, 3),
-            retrieved_at=datetime.utcnow(),
+            retrieved_at=datetime.now(UTC),
         )
