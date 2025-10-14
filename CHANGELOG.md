@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/ViktorMikhalkin/ai-obsidian-service/compare/v0.1.1...v0.1.2) (2025-10-14)
+
+
+### CI/CD
+
+* **workflows:** improve release automation and enforce stricter PR sta… ([#68](https://github.com/ViktorMikhalkin/ai-obsidian-service/issues/68)) ([5932dcb](https://github.com/ViktorMikhalkin/ai-obsidian-service/commit/5932dcb757b9c6c18afccaf726739008ed4a8a9f))
+
 ## [0.1.1](https://github.com/ViktorMikhalkin/ai-obsidian-service/compare/v0.1.0...v0.1.1) (2025-10-08)
 
 
