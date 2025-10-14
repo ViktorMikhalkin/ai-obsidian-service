@@ -7,8 +7,10 @@ on:
     paths:
       - "src/**"
       - "tests/**"
-      - ".github/workflows/integration-tests-cpu.yml"
+      - ".github/workflows/**"
       - "environment.yml"
+      - "environment.gpu.yml"
+      - "environment.cpu.prod.yml"
       - "pyproject.toml"
 
 permissions:
