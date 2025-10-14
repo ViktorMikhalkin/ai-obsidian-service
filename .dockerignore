@@ -47,3 +47,9 @@ config/dev/
 Thumbs.db
 .idea/
 .vscode/
+
+*.pyc
+*.pyd
+*.egg-info
+.env
+checkpoints/

@@ -4,7 +4,7 @@ import asyncio
 import json
 import subprocess
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException, status
@@ -74,7 +74,7 @@ async def ocr_scan_directory(root: str = Body(..., embed=True)):
             "root": root,
             "scanned_pdfs": [str(pdf.relative_to(p)) for pdf in scanned_pdfs],
             "count": len(scanned_pdfs),
-            "scanned_at": datetime.utcnow().isoformat() + "Z",
+            "scanned_at": datetime.now(UTC).isoformat() + "Z",
         }
     except Exception as e:
         log_structured("error", "ocr_scan_failed", root=root, error=str(e))
@@ -277,5 +277,5 @@ def ocr_status():
     return {
         "ocr_running": _ocr_lock.locked(),
         "ocr_available": ocr_available,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(UTC).isoformat() + "Z",
     }

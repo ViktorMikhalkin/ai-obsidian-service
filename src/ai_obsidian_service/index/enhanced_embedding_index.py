@@ -4,7 +4,7 @@ import hashlib
 import json
 import time
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -319,7 +319,7 @@ class EnhancedEmbeddingIndex:
             query=Query(text=text, top_k=int(top_k)),
             hits=store_result.hits,
             total_time_ms=round((time.perf_counter() - t0) * 1000.0, 3),
-            retrieved_at=datetime.utcnow(),
+            retrieved_at=datetime.now(UTC),
         )
 
     def get_stats(self) -> dict:
