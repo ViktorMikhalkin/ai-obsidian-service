@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/ViktorMikhalkin/ai-obsidian-service/compare/v0.1.3...v0.1.4) (2025-10-14)
+
+
+### Bug Fixes
+
+* **ci:** build docker images sequentially with cleanup ([#73](https://github.com/ViktorMikhalkin/ai-obsidian-service/issues/73)) ([0f4bc36](https://github.com/ViktorMikhalkin/ai-obsidian-service/commit/0f4bc36a2d9202b0dbac22a391f1efe8e3f93dcd))
+
 ## [0.1.3](https://github.com/ViktorMikhalkin/ai-obsidian-service/compare/v0.1.2...v0.1.3) (2025-10-14)
 
 
