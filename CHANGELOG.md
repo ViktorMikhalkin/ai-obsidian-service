@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.3](https://github.com/ViktorMikhalkin/ai-obsidian-service/compare/v0.1.2...v0.1.3) (2025-10-14)
+
+
+### Bug Fixes
+
+* **ci:** add version to tag in docker publish workflow ([#70](https://github.com/ViktorMikhalkin/ai-obsidian-service/issues/70)) ([a885e37](https://github.com/ViktorMikhalkin/ai-obsidian-service/commit/a885e372e5e218d84996757a2269658215a4d15a))
+* **ci:** change paths in integration-tests-cpu.yml ([#71](https://github.com/ViktorMikhalkin/ai-obsidian-service/issues/71)) ([2a5c125](https://github.com/ViktorMikhalkin/ai-obsidian-service/commit/2a5c125bd82a2b34808303bbe19441d57a070db3))
+
 ## [0.1.2](https://github.com/ViktorMikhalkin/ai-obsidian-service/compare/v0.1.1...v0.1.2) (2025-10-14)
 
 
