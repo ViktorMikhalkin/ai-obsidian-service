@@ -27,15 +27,26 @@ jobs:
       matrix:
         include:
           - flavor: cpu
-            dockerfile: Dockerfile.cpu
+            dockerfile: cpu.Dockerfile
             platforms: linux/amd64,linux/arm64
           - flavor: gpu
-            dockerfile: Dockerfile.gpu
+            dockerfile: gpu.Dockerfile
             platforms: linux/amd64
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for tags
+
+      - name: Get latest tag
+        if: github.event_name == 'workflow_dispatch' && inputs.tag == ''
+        id: get_tag
+        run: |
+          # Get latest tag and strip 'v' prefix
+          TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Using tag: $TAG"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -49,6 +60,18 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log build info
+        run: |
+          echo "### 🏷️ Build Information" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Flavor:** ${{ matrix.flavor }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "**Tag source:** ${{ inputs.tag != '' && 'manual input' || 'auto-detected from git' }}" >> $GITHUB_STEP_SUMMARY
+            echo "**Tag value:** ${{ inputs.tag || steps.get_tag.outputs.tag || 'manual' }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
 
       - name: Extract metadata
         id: meta
@@ -65,8 +88,8 @@ jobs:
             type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
             # Latest tag for default branch
             type=raw,value=latest,enable={{is_default_branch}}
-            # Manual trigger: use input or default to "manual"
-            type=raw,value=${{ inputs.tag || 'manual' }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            # Manual trigger: use input, auto-detected tag, or default to "manual"
+            type=raw,value=${{ inputs.tag || steps.get_tag.outputs.tag || 'manual' }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Build and push
         id: docker_build
@@ -88,6 +111,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Flavor:** \`${{ matrix.flavor }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Platforms:** \`${{ matrix.platforms }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "**Version:** \`${{ inputs.tag || steps.get_tag.outputs.tag || 'manual' }}\`" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "**Digest:** \`${{ steps.docker_build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
