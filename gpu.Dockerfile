@@ -1,101 +1,91 @@
 # syntax=docker/dockerfile:1.7
-# Variant B: Multi-stage для реального уменьшения размера
+# ---------- Stage 1: build venv with pip only ----------
+FROM ubuntu:24.04 AS builder
 
-############################
-# Stage 1: Builder - установка и очистка
-############################
-FROM pytorch/pytorch:2.8.0-cuda12.9-cudnn9-runtime AS builder
+ARG PY_VER=3.11
+ARG TORCH_INDEX=https://download.pytorch.org/whl/cu129
+ENV VENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH \
+    PIP_ROOT_USER_ACTION=ignore \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+SHELL ["/bin/bash", "-c"]
 
-# System tools
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      git wget \
-    && rm -rf /var/lib/apt/lists/*
+# Minimal system deps for Python + strip
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      ca-certificates curl python3 python3-venv python3-pip binutils; \
+    rm -rf /var/lib/apt/lists/*
 
-# Ускорение conda
-RUN conda install -y conda-libmamba-solver && \
-    conda config --set solver libmamba && \
-    conda config --set channel_priority strict
+# Create venv and upgrade tooling
+RUN python3 -m venv "$VENV"
+RUN python -m pip install -U pip setuptools wheel
 
-# Установка ТОЛЬКО faiss-gpu (PyTorch УЖЕ есть!)
-RUN conda install -y -c pytorch -c nvidia -c conda-forge \
-      faiss-gpu=1.12.0 && \
-    conda clean -y --all
+# --- GPU stack (pip-only) ---
+RUN python -m pip install --no-cache-dir \
+      --index-url $TORCH_INDEX \
+      torch==2.8.0
 
-# Остальные зависимости через pip
-RUN pip install --no-cache-dir --prefer-binary \
-      "fastapi>=0.104" \
-      "uvicorn>=0.24" \
-      "pydantic>=2.0" \
-      "httpx>=0.26" \
-      "sentence-transformers>=2.2,<3.0" \
-      "rank-bm25>=0.2.2" \
-      "pypdf>=4.0" \
-      "beautifulsoup4>=4.13" \
-      "ebooklib>=0.18" \
-      "python-frontmatter>=1.0.0" \
-      "pymupdf>=1.24.0" \
-      "tiktoken>=0.5.0" \
-      "ocrmypdf>=16.11.0"
+RUN python -m pip install --no-cache-dir \
+      faiss-gpu-cu12
 
-# Удаление ненужных модулей PyTorch
-RUN pip uninstall -y torchaudio torchvision triton 2>/dev/null || true && \
-    rm -rf /opt/conda/lib/python3.11/site-packages/torchaudio* \
-           /opt/conda/lib/python3.11/site-packages/torchvision* \
-           /opt/conda/lib/python3.11/site-packages/triton* \
-           /opt/conda/lib/python3.11/site-packages/torch/test \
-           /opt/conda/lib/python3.11/site-packages/torch/include
+# --- App & deps ---
+WORKDIR /opt/app
+COPY . /opt/app
+RUN python -m pip install --no-cache-dir /opt/app && \
+    python -m pip install --no-cache-dir \
+      fastapi>=0.104 uvicorn>=0.24 pydantic>=2 typer>=0.9 aiofiles>=23 python-multipart>=0.0.6 \
+      jinja2>=3.1 python-dotenv>=1.0 pyyaml>=6.0 httpx>=0.25 requests>=2.31 lxml>=4.9.0 \
+      pymupdf>=1.24.0 ocrmypdf>=16.11.0 beautifulsoup4>=4.13 ebooklib>=0.18 python-frontmatter>=1.0.0 \
+      "sentence-transformers>=2.2,<3.0" rank-bm25>=0.2.2 pypdf>=4.0 tiktoken>=0.5.0
 
-# Агрессивная чистка
-RUN conda clean -y --all && \
-    rm -rf /opt/conda/pkgs/* \
-           /opt/conda/lib/tcl* \
-           /opt/conda/lib/tk* \
-           /opt/conda/lib/sqlite* \
-           /opt/conda/share/terminfo \
-           /opt/conda/share/doc \
-           /opt/conda/share/man \
-           /root/.conda \
-           /root/.cache
+# Quick check
+RUN python - <<'PY'
+import torch, faiss
+print("torch:", torch.__version__, "cuda:", torch.version.cuda, "avail:", torch.cuda.is_available())
+print("faiss:", getattr(faiss, "__version__", "n/a"))
+PY
 
-RUN find /opt/conda -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
-    find /opt/conda -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true && \
-    find /opt/conda -type f -name "*.pyc" -delete && \
-    find /opt/conda -type f -name "*.pyo" -delete && \
-    find /opt/conda -type f -name "*.a" -delete
+# Strip .so symbols + clean pip cache
+RUN find "$VENV/lib" -type f -name "*.so*" -exec strip --strip-unneeded {} \; || true && \
+    rm -rf /root/.cache/pip
 
+# ---------- Stage 2: runtime with multilingual OCR ----------
+FROM ubuntu:24.04
 
-############################
-# Stage 2: Runtime - только финальное окружение
-############################
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
-
-# System tools + OCR
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      tini \
-      ca-certificates \
-      wget \
-      # OCR tools \
-      ghostscript \
-      qpdf \
-      tesseract-ocr \
-      pngquant \
-    && rm -rf /var/lib/apt/lists/*
-
-# Копируем ТОЛЬКО очищенное окружение conda
-COPY --from=builder /opt/conda /opt/conda
-
-# Environment
-ENV PATH=/opt/conda/bin:$PATH \
-    PYTHONPATH=/app/src \
+ENV VENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH \
+    PYTHONPATH=/opt/app/src \
     AI_OBS_CONFIG_PATH=/config/service_config.json \
-    LD_LIBRARY_PATH=/usr/local/cuda/lib64:/opt/conda/lib:${LD_LIBRARY_PATH}
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-WORKDIR /app
-COPY . /app
+WORKDIR /opt/app
+SHELL ["/bin/bash", "-c"]
 
-# Проверка
-RUN python -c "import torch; print('✓ PyTorch:', torch.__version__, 'CUDA:', torch.cuda.is_available())" && \
-    python -c "import faiss; print('✓ FAISS:', faiss.__version__)"
+# Multilingual OCR toolchain (ENG+RUS+UKR) + tini
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends software-properties-common; \
+    add-apt-repository -y universe; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      tini \
+      tesseract-ocr \
+      tesseract-ocr-eng tesseract-ocr-rus tesseract-ocr-ukr \
+      qpdf ghostscript poppler-utils \
+      pngquant unpaper \
+      ca-certificates \
+      wget; \
+    rm -rf /var/lib/apt/lists/*
+
+# Bring venv + app
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /opt/app /opt/app
+
+# Final trim
+RUN find "$VENV/lib" -type f -name "*.a" -delete || true && rm -rf /root/.cache
 
 EXPOSE 8000
 
