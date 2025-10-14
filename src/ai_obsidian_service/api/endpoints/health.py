@@ -18,8 +18,11 @@ def health_check():
     device = "cpu"
     cuda_available = False
     try:
-        import torch  # type: ignore
-        cuda_available = bool(getattr(torch, "cuda", None) and torch.cuda.is_available())
+        import torch
+
+        cuda_available = bool(
+            getattr(torch, "cuda", None) and torch.cuda.is_available()
+        )
         device = "cuda" if cuda_available else "cpu"
     except Exception:
         pass

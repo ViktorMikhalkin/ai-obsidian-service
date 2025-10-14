@@ -15,14 +15,20 @@ router = APIRouter()
 # Default config file location
 CONFIG_FILE = Path(os.environ.get("AI_OBS_CONFIG_PATH", "/config/service_config.json"))
 
+
 def _detect_default_device() -> str:
     """Pick sensible default per image: 'cuda' if available, else 'cpu'."""
     forced = os.environ.get("AIOBS_FORCE_DEVICE")
     if forced in ("cpu", "cuda"):
         return forced
     try:
-        import torch  # type: ignore
-        return "cuda" if getattr(torch, "cuda", None) and torch.cuda.is_available() else "cpu"
+        import torch
+
+        return (
+            "cuda"
+            if getattr(torch, "cuda", None) and torch.cuda.is_available()
+            else "cpu"
+        )
     except Exception:
         return "cpu"
 
@@ -337,7 +343,9 @@ def get_current_config() -> ServiceConfig:
             try:
                 # align FAISS search target with device if present
                 if hasattr(config, "indexing") and hasattr(config.indexing, "faiss"):
-                    config.indexing.faiss.search_on = "gpu" if default_device == "cuda" else "cpu"
+                    config.indexing.faiss.search_on = (
+                        "gpu" if default_device == "cuda" else "cpu"
+                    )
             except Exception:
                 pass
 
