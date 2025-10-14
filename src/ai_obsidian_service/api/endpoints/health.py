@@ -1,6 +1,6 @@
 """Health and info endpoints."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter
 
@@ -28,7 +28,7 @@ def health_check():
         pass
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(UTC).isoformat() + "Z",
         "service": "ai-obsidian-service",
         "device": device,
         "cuda_available": cuda_available,

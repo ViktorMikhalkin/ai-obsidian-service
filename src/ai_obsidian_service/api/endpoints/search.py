@@ -1,6 +1,6 @@
 """Search and answer (RAG) endpoints."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException
 
@@ -46,7 +46,7 @@ def api_search(req: SearchRequest):
             "query": dto.query,
             "top_k": dto.top_k,
             "hits": [h.model_dump() for h in dto.hits],
-            "retrieved_at": datetime.utcnow().isoformat() + "Z",
+            "retrieved_at": datetime.now(UTC).isoformat() + "Z",
             "total_time_ms": result.total_time_ms,
         }
     except Exception as e:
