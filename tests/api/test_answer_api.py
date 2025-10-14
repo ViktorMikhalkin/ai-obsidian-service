@@ -8,7 +8,7 @@ os.environ.setdefault("AIOBS_TEST_MODE", "1")
 os.environ.setdefault("OLLAMA_BASE_URL", "")
 os.environ.setdefault("OLLAMA_MODEL", "")
 
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -52,7 +52,7 @@ def test_answer_endpoint_minimal(monkeypatch):
             query=Query(q, top_k=top_k),
             hits=[hit],
             total_time_ms=1.23,
-            retrieved_at=datetime.utcnow(),
+            retrieved_at=datetime.now(UTC),
         )
 
     monkeypatch.setattr(SearchService, "search_text", _fake_search, raising=True)
